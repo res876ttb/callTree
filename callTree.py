@@ -9,17 +9,24 @@ import json
 
 parser = argparse.ArgumentParser()
 parser.add_argument('symbols', type=str, help='The root symbols of caller tree. If you want to build multiple trees at a time, use comma without space to seperate each symbol. For example, `symbol1,symbol2`')
-parser.add_argument('--path', type=str, default='.', help='Path to the GPATH/GRTAGS/GTAGS with sqlite3 format.')
-parser.add_argument('--blacklist', type=str, default='', help='List of black list. Use comma to seperate each symbol with space. For example, `DEBUG,RANDOM`')
+parser.add_argument('-p', '--path', type=str, default='.', help='Path to the GPATH/GRTAGS/GTAGS with sqlite3 format.')
+parser.add_argument('-b', '--blacklist', type=str, default='', help='List of black list. Use comma to seperate each symbol with space. For example, `DEBUG,RANDOM`')
 parser.add_argument('-v', '--verbose', action='store_true', help='Show more log for debugging.')
-parser.add_argument('--show_position', action='store_true', help='Whether to show ref file and line number.')
+parser.add_argument('-s', '--show_position', action='store_true', help='Whether to show ref file and line number.')
+parser.add_argument('-o', '--output', type=str, default='calltree.txt', help='The output file name.')
+parser.add_argument('-g', '--background', action='store_true', help='Whether NOT to print output to stdout.')
+parser.add_argument('-d', '--depth', type=int, default=-1, help='Max depth of result. If set to -1, then the result is unlimited. Default is -1.')
 args = parser.parse_args()
 
 BOOL_VERBOSE = args.verbose
 BOOL_SHOW_POSITION = args.show_position
+BOOL_BACKGROUND = args.background
+
+NUM_MAX_DEPTH = args.depth
 
 STR_TRAVERSED = '@Traversed'
 STR_BLACKLISTED = '@Blacklisted'
+STR_MAX_DEPTH = '@ReachMaxDepth'
 
 LIST_BLACKLIST = args.blacklist.split(',')
 
@@ -205,8 +212,15 @@ class CallTree:
     filePath = self.pathMap[fileSymbol]
     assert(os.path.exists(filePath))
 
-    with open(self.pathMap[fileSymbol]) as fp:
-      codes = fp.readlines()
+    if BOOL_VERBOSE:
+      print('Read', self.pathMap[fileSymbol])
+
+    try:
+      with open(self.pathMap[fileSymbol]) as fp:
+        codes = fp.readlines()
+    except:
+      print('Fail to read file', self.pathMap[fileSymbol])
+      return False
 
     callerLineNumber -= 1
     while True:
@@ -237,7 +251,10 @@ class CallTree:
         return False
 
       for defInfo in self.definitions[symbol]:
-        originalCode = defInfo[0].split(' ', 3)[3]
+        splittedDefInfo = defInfo[0].split(' ', 3)
+        if len(splittedDefInfo) < 4:
+          continue
+        originalCode = splittedDefInfo[3]
         if self.isSourceCodeDefineMacro(originalCode):
           self.checkedMacro[symbol] = True
           return True
@@ -322,8 +339,18 @@ class CallTree:
   def toFileLine(self, fileSymbol, lineNumber):
     return "File: %s, Line %d" % (self.pathMap[fileSymbol], lineNumber)
 
-  def findAllCaller(self, symbol):
-    if symbol in LIST_BLACKLIST:
+  def matchBlackList(self, symbol):
+    for blackListItem in LIST_BLACKLIST:
+      if re.match(blackListItem, symbol):
+        return True
+
+    return False
+
+  def findAllCaller(self, symbol, depth):
+    if NUM_MAX_DEPTH != -1 and depth >= NUM_MAX_DEPTH:
+      return STR_MAX_DEPTH
+
+    if self.matchBlackList(symbol):
       return STR_BLACKLISTED
 
     if symbol in self.traversed:
@@ -372,10 +399,10 @@ class CallTree:
         if BOOL_SHOW_POSITION:
           callerDict[caller] = {
             'position': self.toFileLine(refPosition[caller][0], refPosition[caller][1]),
-            'caller': self.findAllCaller(caller)
+            'caller': self.findAllCaller(caller, depth + 1)
           }
         else:
-          callerDict[caller] = self.findAllCaller(caller)
+          callerDict[caller] = self.findAllCaller(caller, depth + 1)
 
     return callerDict
 
@@ -386,8 +413,15 @@ class CallTree:
 
     # For test only
     for symbol in self.symbols:
-      self.trees[symbol] = self.findAllCaller(symbol)
+      self.trees[symbol] = self.findAllCaller(symbol, 0)
 
 os.chdir(args.path)
 ct = CallTree(args.symbols.split(','))
-print(json.dumps(ct.trees, indent = 2))
+
+treeStr = json.dumps(ct.trees, indent = 2)
+
+if not BOOL_BACKGROUND:
+  print(treeStr)
+
+with open(args.output, 'w') as fp:
+  fp.write(treeStr)
