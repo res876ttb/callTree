@@ -9,28 +9,466 @@ import json
 
 parser = argparse.ArgumentParser()
 parser.add_argument('symbols', type=str, help='The root symbols of caller tree. If you want to build multiple trees at a time, use comma without space to seperate each symbol. For example, `symbol1,symbol2`')
-parser.add_argument('-p', '--path', type=str, default='.', help='Path to the GPATH/GRTAGS/GTAGS with sqlite3 format.')
-parser.add_argument('-b', '--blacklist', type=str, default='', help='List of black list. Use comma to seperate each symbol with space. For example, `DEBUG,RANDOM`')
+parser.add_argument('-p', '--path', type=str, default='.', help='Path to the cscope.out file or GPATH/GRTAGS/GTAGS with sqlite3 format.')
+parser.add_argument('-b', '--blacklist', type=str, default='', help='List of black list. Use comma to seperate each symbol with space. Regex matching is supported. For example, `DEBUG,DEBUG_\w+`')
+parser.add_argument('-o', '--output', type=str, default='calltree.txt', help='The output file name.')
+parser.add_argument('-d', '--depth', type=int, default=-1, help='Max depth of result. If set to -1, then the result is unlimited. Default is -1.')
+parser.add_argument('-t', '--tag_version', type=str, default='cscope', choices=['global', 'cscope'], help='Choose tag system you want to use. Available choices: [global(tags generated with sqlite3 support), cscope] Default: cscope.')
 parser.add_argument('-v', '--verbose', action='store_true', help='Show more log for debugging.')
 parser.add_argument('-s', '--show_position', action='store_true', help='Whether to show ref file and line number.')
-parser.add_argument('-o', '--output', type=str, default='calltree.txt', help='The output file name.')
 parser.add_argument('-g', '--background', action='store_true', help='Whether NOT to print output to stdout.')
-parser.add_argument('-d', '--depth', type=int, default=-1, help='Max depth of result. If set to -1, then the result is unlimited. Default is -1.')
 args = parser.parse_args()
 
-BOOL_VERBOSE = args.verbose
-BOOL_SHOW_POSITION = args.show_position
-BOOL_BACKGROUND = args.background
+BOOL_VERBOSE          = args.verbose
+BOOL_SHOW_POSITION    = args.show_position
+BOOL_BACKGROUND       = args.background
 
-NUM_MAX_DEPTH = args.depth
+NUM_MAX_DEPTH         = args.depth
 
-STR_TRAVERSED = '@Traversed'
-STR_BLACKLISTED = '@Blacklisted'
-STR_MAX_DEPTH = '@ReachMaxDepth'
+STR_TRAVERSED         = '@Traversed'
+STR_BLACKLISTED       = '@Blacklisted'
+STR_MAX_DEPTH         = '@ReachMaxDepth'
+STR_NO_REFERENCE      = '@NoReference'
+STR_TAG_VERSION       = args.tag_version
+STR_FILENAME_SYMBOL   = '\t@'
+STR_DEFAULT_FILENAME  = 'main.c'
+STR_DEFAULT_FUNCTION  = 'main'
+STR_DEFAULT_MACRO     = 'macro'
 
-LIST_BLACKLIST = args.blacklist.split(',')
+LIST_BLACKLIST        = args.blacklist.split(',') if len(args.blacklist) > 0 else []
 
-class CallTree:
+RE_CLASS_DEFINITION   = r'^\tc\w+$'
+RE_DEFINE             = r'^\t#\w+$'
+RE_DEFINE_END         = r'^\t\)$'
+RE_DEFINITION         = r'^\t\$\w+$'
+RE_ENUM               = r'^\te\w+$'
+RE_FILENAME           = r'^\t@(\w|/\w|\.\w|-\w)+$'
+RE_FUNCTION_END       = r'^\t\}$'
+RE_GLOBAL_VARIABLE    = r'^\tg\w+$'
+RE_LINE_NUMBER        = r'^\d+\s'
+RE_MARK               = r'^\tm\w+$'
+RE_REFERENCE          = r'^\t`\w+$'
+RE_STRUCT             = r'^\ts\w+$'
+RE_TYPEDEF            = r'^\tt\w+$'
+RE_WORD_ONLY          = r'^\w+$'
+
+class CallTree_Cscope:
+  def __init__(self, symbols):
+    # We should find cscope.out under current directory
+    if not os.path.exists('cscope.out'):
+      print('Cannot find GTAGS')
+      sys.exit(1)
+
+    self.symbols = symbols
+    self.traversed = {}
+    self.trees = {}
+
+    self.loadCscopeDB()
+    self.buildDefinitionMap()
+    self.buildTree()
+
+  def decodeCscopeContent(self, fp):
+    # 16 most frequent first chars
+    dichar1 = " teisaprnl(of)=c"
+    # 8 most frequent second chars
+    dichar2 = " tnerpla"
+
+    dicode1 = [0 for _ in range(256)]
+    dicode2 = [0 for _ in range(256)]
+
+    for i in range(16):
+      dicode1[ord(dichar1[i])] = i * 8 + 1
+    for i in range(8):
+      dicode2[ord(dichar2[i])] = i + 1
+
+    def dicodeCompress(char1, char2):
+      return chr((0o200 - 2) + dicode1[ord(char1)] + dicode2[ord(char2)])
+
+    decodeMap = {}
+    for c1 in dichar1:
+      for c2 in dichar2:
+        decodeMap[dicodeCompress(c1, c2)] = c1 + c2
+
+    keywordList = ["#define ", "#include ", "break ", "case ", "char ", "continue ", "default ", "double ", "\t\0", "\n\0", "else ", "enum ", "extern ", "float ", "for (", "goto ", "if (", "int ", "long ", "register ", "return", "short ", "sizeof ", "static ", "struct ", "switch (", "typedef ", "union ", "unsigned ", "void ", "while ("]
+    keywordMap = {}
+    for i in range(len(keywordList)):
+      if i not in [8, 9]:
+        keywordMap[chr(i + 1)] = keywordList[i]
+
+    # Reference: https://www.codegrepper.com/code-examples/python/UnicodeDecodeError%3A+%27utf-8%27+codec+can%27t+decode+byte+0x91+in+position+14%3A+invalid+start+byte
+    content = fp.read().decode('ISO-8859-1')
+
+    for code in decodeMap:
+      content = content.replace(code, decodeMap[code])
+
+    for keyword in keywordMap:
+      content = content.replace(keyword, keywordMap[keyword])
+
+    return content.split('\n')
+
+  def loadCscopeDB(self):
+    if BOOL_VERBOSE:
+      print('Loading cscope.out...')
+    with open('cscope.out', 'rb') as fp:
+      cscope = self.decodeCscopeContent(fp)
+
+    '''
+    format: {
+      symbol: {
+        file_path: [line_number,...],
+        ...
+      }
+    }
+    '''
+    self.definitions = {}
+    self.macroDefinitions = {}
+    self.macroEnds = {}
+    self.functionDefinitions = {}
+    self.functionEnds = {}
+    self.symbolDefinitions = {}
+    self.references = {}
+    self.parseRef(cscope)
+
+  def addRef(self, filePath, lineNumber, symbol):
+    if symbol not in self.references:
+      self.references[symbol] = {}
+
+    if filePath not in self.references[symbol]:
+      self.references[symbol][filePath] = []
+
+    self.references[symbol][filePath].append(lineNumber)
+
+  def addDef(self, filePath, lineNumber, symbol):
+    if symbol not in self.definitions:
+      self.definitions[symbol] = {}
+
+    if filePath not in self.definitions[symbol]:
+      self.definitions[symbol][filePath] = []
+
+    self.definitions[symbol][filePath].append(lineNumber)
+
+  def addFuncDef(self, filePath, lineNumber, symbol):
+    if symbol not in self.functionDefinitions:
+      self.functionDefinitions[symbol] = {}
+
+    if filePath not in self.functionDefinitions[symbol]:
+      self.functionDefinitions[symbol][filePath] = []
+
+    self.functionDefinitions[symbol][filePath].append(lineNumber)
+
+  def addFuncEnd(self, filePath, lineNumber, symbol):
+    if symbol not in self.functionEnds:
+      self.functionEnds[symbol] = {}
+
+    if filePath not in self.functionEnds[symbol]:
+      self.functionEnds[symbol][filePath] = []
+
+    self.functionEnds[symbol][filePath].append(lineNumber)
+
+  def addSymbolDef(self, filePath, lineNumber, symbol):
+    if symbol not in self.symbolDefinitions:
+      self.symbolDefinitions[symbol] = {}
+
+    if filePath not in self.symbolDefinitions[symbol]:
+      self.symbolDefinitions[symbol][filePath] = []
+
+    self.symbolDefinitions[symbol][filePath].append(lineNumber)
+
+  def addMacroDef(self, filePath, lineNumber, symbol):
+    if symbol not in self.macroDefinitions:
+      self.macroDefinitions[symbol] = {}
+
+    if filePath not in self.macroDefinitions[symbol]:
+      self.macroDefinitions[symbol][filePath] = []
+
+    self.macroDefinitions[symbol][filePath].append(lineNumber)
+
+  def addMacroEnd(self, filePath, lineNumber, symbol):
+    if symbol not in self.macroEnds:
+      self.macroEnds[symbol] = {}
+
+    if filePath not in self.macroEnds[symbol]:
+      self.macroEnds[symbol][filePath] = []
+
+    self.macroEnds[symbol][filePath].append(lineNumber)
+
+  def encodeFileLineSymbol(self, fileName, lineNumber, symbol):
+    return "%s,%s,%s" % (fileName, lineNumber, symbol)
+
+  def decodeFileLineSymbol(self, fileLineSymbol):
+    splitted = fileLineSymbol.split(',')
+    if len(splitted) < 3:
+      return [STR_DEFAULT_FILENAME, 0, 'None']
+    [fileName, lineNumber, symbol] = splitted
+    return [fileName, int(lineNumber), symbol]
+
+  def parseRef(self, cscope):
+    ENUM_NORMAL = 0
+    ENUM_EMPTY = 1
+    ENUM_DEFINE = 2
+
+    state = ENUM_NORMAL
+    curFileName = STR_DEFAULT_FILENAME
+    curLineNum = 0
+    curFunctionName = STR_DEFAULT_FUNCTION
+    curMacroName = STR_DEFAULT_MACRO
+
+    for line in cscope:
+      # Less frequently option, lower priority
+      # Find empty space
+      if state != ENUM_DEFINE and line == '':
+        state = ENUM_EMPTY
+        continue
+
+      # Find line number
+      if state == ENUM_EMPTY and re.match(RE_LINE_NUMBER, line):
+        curLineNum = int(line.split(' ')[0])
+        state = ENUM_NORMAL
+        continue
+
+      # Find definition
+      if (state == ENUM_NORMAL or state == ENUM_EMPTY) and re.match(RE_DEFINITION, line):
+        state = ENUM_NORMAL
+        self.addDef(curFileName, curLineNum, line[2:])
+        self.addFuncDef(curFileName, curLineNum, line[2:])
+        curFunctionName = self.encodeFileLineSymbol(curFileName, curLineNum, line[2:])
+        continue
+
+      # Find class definition, struct, typedef, enum, or enum value
+      if (state == ENUM_NORMAL or state == ENUM_EMPTY) and (
+          re.match(RE_CLASS_DEFINITION, line) or
+          re.match(RE_STRUCT, line) or
+          re.match(RE_TYPEDEF, line) or
+          re.match(RE_ENUM, line) or
+          re.match(RE_MARK, line)):
+        state = ENUM_NORMAL
+        self.addDef(curFileName, curLineNum, line[2:])
+        self.addSymbolDef(curFileName, curLineNum, line[2:])
+        continue
+
+      # Find define macro
+      if state == ENUM_NORMAL and re.match(RE_DEFINE, line):
+        state = ENUM_DEFINE
+        self.addDef(curFileName, curLineNum, line[2:])
+        self.addMacroDef(curFileName, curLineNum, line[2:])
+        curMacroName = self.encodeFileLineSymbol(curFileName, curLineNum, line[2:])
+        continue
+
+      # Find reference in define macro
+      if state == ENUM_DEFINE and re.match(RE_WORD_ONLY, line):
+        state = ENUM_DEFINE
+        self.addRef(curFileName, curLineNum, line)
+        continue
+
+      # End of definition
+      if state == ENUM_DEFINE and re.match(RE_DEFINE_END, line):
+        state = ENUM_NORMAL
+        self.addMacroEnd(curFileName, curLineNum, curMacroName)
+        curMacroName = STR_DEFAULT_MACRO
+        continue
+
+      # End of function
+      if (state == ENUM_NORMAL or state == ENUM_EMPTY) and re.match(RE_FUNCTION_END, line):
+        state = ENUM_NORMAL
+        self.addFuncEnd(curFileName, curLineNum, curFunctionName)
+        curFunctionName = STR_DEFAULT_FUNCTION
+        continue
+
+      # Find filename
+      if (state == ENUM_NORMAL or state == ENUM_EMPTY) and re.match(RE_FILENAME, line):
+        curFileName = line[2:]
+        curLineNum = 1
+        state = ENUM_NORMAL
+        continue
+
+      # Find reference
+      if re.match(RE_REFERENCE, line):
+        state = ENUM_NORMAL
+        self.addRef(curFileName, curLineNum, line[2:])
+        continue
+
+      # Find reference as well
+      if re.match(RE_WORD_ONLY, line):
+        state = ENUM_NORMAL
+        self.addRef(curFileName, curLineNum, line)
+        continue
+
+  def buildDefinitionMap(self):
+    '''
+    Target: used for finding caller
+    Output: {
+      file_path: {
+        line_number: [symbol1, symbol2...]
+      }
+    }
+    '''
+
+    def _buildDefinitionMap(definitions):
+      '''
+      Input format: {
+        symbol: {
+          file_path: [line_number,...],
+          ...
+        }
+      }
+      '''
+      result = {}
+
+      for symbol in definitions:
+        info = definitions[symbol]
+        for file_path in info:
+          for line_number in info[file_path]:
+            if file_path not in result:
+              result[file_path] = {}
+
+            if line_number not in result[file_path]:
+              result[file_path][line_number] = []
+
+            result[file_path][line_number].append(symbol)
+
+      return result
+
+    self.definitionMap = _buildDefinitionMap(self.definitions)
+    self.functionDefinitionMap = _buildDefinitionMap(self.functionDefinitions)
+    self.functionEndMap = _buildDefinitionMap(self.functionEnds)
+    self.macroDefinitionMap = _buildDefinitionMap(self.macroDefinitions)
+    self.macroEndMap = _buildDefinitionMap(self.macroEnds)
+
+  def matchBlackList(self, symbol):
+    for blackListItem in LIST_BLACKLIST:
+      if re.match(blackListItem, symbol):
+        if BOOL_VERBOSE:
+          print('Match blackList! Symbol:', symbol, 'Pattern:', blackListItem)
+        return True
+
+    return False
+
+  def toFileLine(self, filePath, lineNumber):
+    return "File: %s, Line %d" % (filePath, lineNumber)
+
+  def findCaller(self, filePath, lineNumber, symbol):
+    ENUM_GREATER_OR_EQUAL = 0
+    ENUM_LESS_OR_EQUAL = 1
+
+    # Binary search
+    def binarySearch(lineNumbers, mode):
+      callerLine = 0
+      left = 0
+      right = len(lineNumbers) - 1
+
+      while left <= right:
+        middle = (left + right) // 2
+        if lineNumbers[middle] == lineNumber:
+          callerLine = lineNumbers[middle]
+          break
+        elif lineNumbers[middle] > lineNumber:
+          right = middle - 1
+        else:
+          left = middle + 1
+
+      if callerLine == 0:
+        if mode == ENUM_LESS_OR_EQUAL:
+          while middle + 1 < len(lineNumbers) and lineNumbers[middle] < lineNumber:
+            middle += 1
+          while middle > 0 and lineNumbers[middle] >= lineNumber:
+            middle -= 1
+        elif mode == ENUM_GREATER_OR_EQUAL:
+          while middle > 0 and lineNumbers[middle] >= lineNumber:
+            middle -= 1
+          while middle + 1 < len(lineNumbers) and lineNumbers[middle] < lineNumber:
+            middle += 1
+        else:
+          print('Invalid mode %d !' % mode)
+          return -1
+
+      return middle
+
+    # Find macro define position
+    if filePath in self.macroEndMap:
+      lineNumbers = [int(num) for num in self.macroEndMap[filePath]]
+      macroEndIndex = binarySearch(lineNumbers, ENUM_GREATER_OR_EQUAL)
+      if macroEndIndex > -1:
+        macroEndLineNumber = lineNumbers[macroEndIndex]
+        [macroInfo] = self.macroEndMap[filePath][macroEndLineNumber]
+        _, macroLineNumber, symbol = self.decodeFileLineSymbol(macroInfo)
+        if macroLineNumber <= lineNumber and macroEndLineNumber >= lineNumber:
+          return [symbol]
+
+    # If not a macro define, find function definition position
+    if filePath in self.functionEndMap:
+      lineNumbers = [int(num) for num in self.functionEndMap[filePath]]
+      functionEndIndex = binarySearch(lineNumbers, ENUM_GREATER_OR_EQUAL)
+      if functionEndIndex > -1:
+        functionEndLineNumber = lineNumbers[functionEndIndex]
+        [macroInfo] = self.functionEndMap[filePath][functionEndLineNumber]
+        _, functionLineNumber, symbol = self.decodeFileLineSymbol(macroInfo)
+        if functionLineNumber <= lineNumber and functionEndLineNumber >= lineNumber:
+          return [symbol]
+
+    # Search nothing
+    return None
+
+  def findAllCaller(self, symbol, depth):
+    if NUM_MAX_DEPTH != -1 and depth >= NUM_MAX_DEPTH:
+      return STR_MAX_DEPTH
+
+    if self.matchBlackList(symbol):
+      return STR_BLACKLISTED
+
+    if symbol in self.traversed:
+      return STR_TRAVERSED
+
+    if symbol not in self.references:
+      return STR_NO_REFERENCE
+
+    callerDict = {}
+    callerList = []
+    refPosition = {}
+
+    references = self.references[symbol]
+    for filePath in references:
+      refLines = references[filePath]
+      for lineNumber in refLines:
+        caller = self.findCaller(filePath, lineNumber, symbol)
+        if caller == None:
+          continue
+        for _caller in caller:
+          refPosition[_caller] = (filePath, lineNumber)
+        callerList += caller
+
+    callerList = list(set(callerList))
+    self.traversed[symbol] = callerList
+
+    for caller in callerList:
+      if caller in self.traversed:
+        if caller not in callerDict:
+          if BOOL_SHOW_POSITION:
+            callerDict[caller] = {
+              'callee': self.toFileLine(refPosition[caller][0], refPosition[caller][1]),
+              'caller': STR_TRAVERSED
+            }
+          else:
+            callerDict[caller] = STR_TRAVERSED
+      else:
+        if BOOL_SHOW_POSITION:
+          callerDict[caller] = {
+            'callee': self.toFileLine(refPosition[caller][0], refPosition[caller][1]),
+            'caller': self.findAllCaller(caller, depth + 1)
+          }
+        else:
+          callerDict[caller] = self.findAllCaller(caller, depth + 1)
+
+    if len(callerDict) == 0:
+      return STR_NO_REFERENCE
+
+    return callerDict
+
+  def buildTree(self):
+    self.trees = {}
+    for symbol in self.symbols:
+      self.trees[symbol] = self.findAllCaller(symbol, 0)
+
+class CallTree_Global:
   def __init__(self, symbols):
     # We should find three files (GTAGS, GRTAGS, and GPATH) under current directory.
     findAllFile = True
@@ -57,9 +495,9 @@ class CallTree:
     self.pathMap = {}
     self.functionDefinitions = {}
 
-    self.loadGtags('GTAGS') # format: {symbol: [file_symbol symbol line_number original_code, file_symbol]}
+    self.loadGtags('GTAGS')  # format: {symbol: [file_symbol symbol line_number original_code, file_symbol]}
     self.loadRtags('GRTAGS') # format: {symbol: [file_symbol symbol line_number,line_number..., file_symbol]}
-    self.loadPath('GPATH')      # format: {file_symbol/path: path/file_symbol}
+    self.loadPath('GPATH')   # format: {file_symbol/path: path/file_symbol}
     self.buildTree()
 
   def loadDB(self, filename):
@@ -357,7 +795,7 @@ class CallTree:
       return STR_TRAVERSED
 
     if symbol not in self.references:
-      return {}
+      return STR_NO_REFERENCE
 
     callerDict = {}
     callerList = []
@@ -390,7 +828,7 @@ class CallTree:
         if caller not in callerDict:
           if BOOL_SHOW_POSITION:
             callerDict[caller] = {
-              'position': self.toFileLine(refPosition[caller][0], refPosition[caller][1]),
+              'callee': self.toFileLine(refPosition[caller][0], refPosition[caller][1]),
               'caller': STR_TRAVERSED
             }
           else:
@@ -398,7 +836,7 @@ class CallTree:
       else:
         if BOOL_SHOW_POSITION:
           callerDict[caller] = {
-            'position': self.toFileLine(refPosition[caller][0], refPosition[caller][1]),
+            'callee': self.toFileLine(refPosition[caller][0], refPosition[caller][1]),
             'caller': self.findAllCaller(caller, depth + 1)
           }
         else:
@@ -416,7 +854,11 @@ class CallTree:
       self.trees[symbol] = self.findAllCaller(symbol, 0)
 
 os.chdir(args.path)
-ct = CallTree(args.symbols.split(','))
+
+if STR_TAG_VERSION == 'global':
+  ct = CallTree_Global(args.symbols.split(','))
+elif STR_TAG_VERSION == 'cscope':
+  ct = CallTree_Cscope(args.symbols.split(','))
 
 treeStr = json.dumps(ct.trees, indent = 2)
 
