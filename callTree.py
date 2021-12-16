@@ -89,7 +89,15 @@ class CallTree_Cscope:
       for c2 in dichar2:
         decodeMap[dicodeCompress(c1, c2)] = c1 + c2
 
-    keywordList = ["#define ", "#include ", "break ", "case ", "char ", "continue ", "default ", "double ", "\t\0", "\n\0", "else ", "enum ", "extern ", "float ", "for (", "goto ", "if (", "int ", "long ", "register ", "return", "short ", "sizeof ", "static ", "struct ", "switch (", "typedef ", "union ", "unsigned ", "void ", "while ("]
+    keywordList = [
+      "#define ", "#include ", "break ", "case ", "char ",
+      "continue ", "default ", "double ", "\t\0", "\n\0",
+      "else ", "enum ", "extern ", "float ", "for (",
+      "goto ", "if (", "int ", "long ", "register ",
+      "return", "short ", "sizeof ", "static ", "struct ",
+      "switch (", "typedef ", "union ", "unsigned ", "void ",
+      "while ("
+    ]
     keywordMap = {}
     for i in range(len(keywordList)):
       if i not in [8, 9]:
@@ -97,6 +105,9 @@ class CallTree_Cscope:
 
     # Reference: https://www.codegrepper.com/code-examples/python/UnicodeDecodeError%3A+%27utf-8%27+codec+can%27t+decode+byte+0x91+in+position+14%3A+invalid+start+byte
     content = fp.read().decode('ISO-8859-1')
+
+    if BOOL_VERBOSE:
+      print('Decode cscope.out ...')
 
     for code in decodeMap:
       content = content.replace(code, decodeMap[code])
@@ -109,6 +120,7 @@ class CallTree_Cscope:
   def loadCscopeDB(self):
     if BOOL_VERBOSE:
       print('Loading cscope.out...')
+
     with open('cscope.out', 'rb') as fp:
       cscope = self.decodeCscopeContent(fp)
 
@@ -203,6 +215,9 @@ class CallTree_Cscope:
     return [fileName, int(lineNumber), symbol]
 
   def parseRef(self, cscope):
+    if BOOL_VERBOSE:
+      print('Parsing cscope.out ...')
+
     ENUM_NORMAL = 0
     ENUM_EMPTY = 1
     ENUM_DEFINE = 2
@@ -302,6 +317,9 @@ class CallTree_Cscope:
       }
     }
     '''
+
+    if BOOL_VERBOSE:
+      print('Build definition map ...')
 
     def _buildDefinitionMap(definitions):
       '''
@@ -464,6 +482,9 @@ class CallTree_Cscope:
     return callerDict
 
   def buildTree(self):
+    if BOOL_VERBOSE:
+      print('Build call tree ...')
+
     self.trees = {}
     for symbol in self.symbols:
       self.trees[symbol] = self.findAllCaller(symbol, 0)
