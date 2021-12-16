@@ -6,6 +6,7 @@ import os
 import sys
 import re
 import json
+from datetime import datetime
 
 parser = argparse.ArgumentParser()
 parser.add_argument('symbols', type=str, help='The root symbols of caller tree. If you want to build multiple trees at a time, use comma without space to seperate each symbol. For example, `symbol1,symbol2`')
@@ -37,20 +38,20 @@ STR_DEFAULT_MACRO     = 'macro'
 
 LIST_BLACKLIST        = args.blacklist.split(',') if len(args.blacklist) > 0 else []
 
-RE_CLASS_DEFINITION   = r'^\tc\w+$'
-RE_DEFINE             = r'^\t#\w+$'
-RE_DEFINE_END         = r'^\t\)$'
-RE_DEFINITION         = r'^\t\$\w+$'
-RE_ENUM               = r'^\te\w+$'
-RE_FILENAME           = r'^\t@(\w|/\w|\.\w|-\w)+$'
-RE_FUNCTION_END       = r'^\t\}$'
-RE_GLOBAL_VARIABLE    = r'^\tg\w+$'
-RE_LINE_NUMBER        = r'^\d+\s'
-RE_MARK               = r'^\tm\w+$'
-RE_REFERENCE          = r'^\t`\w+$'
-RE_STRUCT             = r'^\ts\w+$'
-RE_TYPEDEF            = r'^\tt\w+$'
-RE_WORD_ONLY          = r'^\w+$'
+RE_CLASS_DEFINITION   = re.compile(r'^\tc\w+$')
+RE_DEFINE             = re.compile(r'^\t#\w+$')
+RE_DEFINE_END         = re.compile(r'^\t\)$')
+RE_DEFINITION         = re.compile(r'^\t\$\w+$')
+RE_ENUM               = re.compile(r'^\te\w+$')
+RE_FILENAME           = re.compile(r'^\t@(\w|/\w|\.\w|-\w)+$')
+RE_FUNCTION_END       = re.compile(r'^\t\}$')
+RE_GLOBAL_VARIABLE    = re.compile(r'^\tg\w+$')
+RE_LINE_NUMBER        = re.compile(r'^\d+\s')
+RE_MARK               = re.compile(r'^\tm\w+$')
+RE_REFERENCE          = re.compile(r'^\t`\w+$')
+RE_STRUCT             = re.compile(r'^\ts\w+$')
+RE_TYPEDEF            = re.compile(r'^\tt\w+$')
+RE_WORD_ONLY          = re.compile(r'^\w+$')
 
 class CallTree_Cscope:
   def __init__(self, symbols):
@@ -107,6 +108,7 @@ class CallTree_Cscope:
     content = fp.read().decode('ISO-8859-1')
 
     if BOOL_VERBOSE:
+      print(datetime.now())
       print('Decode cscope.out ...')
 
     for code in decodeMap:
@@ -119,6 +121,7 @@ class CallTree_Cscope:
 
   def loadCscopeDB(self):
     if BOOL_VERBOSE:
+      print(datetime.now())
       print('Loading cscope.out...')
 
     with open('cscope.out', 'rb') as fp:
@@ -216,6 +219,7 @@ class CallTree_Cscope:
 
   def parseRef(self, cscope):
     if BOOL_VERBOSE:
+      print(datetime.now())
       print('Parsing cscope.out ...')
 
     ENUM_NORMAL = 0
@@ -236,13 +240,13 @@ class CallTree_Cscope:
         continue
 
       # Find line number
-      if state == ENUM_EMPTY and re.match(RE_LINE_NUMBER, line):
+      if state == ENUM_EMPTY and RE_LINE_NUMBER.match(line):
         curLineNum = int(line.split(' ')[0])
         state = ENUM_NORMAL
         continue
 
       # Find definition
-      if (state == ENUM_NORMAL or state == ENUM_EMPTY) and re.match(RE_DEFINITION, line):
+      if (state == ENUM_NORMAL or state == ENUM_EMPTY) and RE_DEFINITION.match(line):
         state = ENUM_NORMAL
         self.addDef(curFileName, curLineNum, line[2:])
         self.addFuncDef(curFileName, curLineNum, line[2:])
@@ -251,18 +255,18 @@ class CallTree_Cscope:
 
       # Find class definition, struct, typedef, enum, or enum value
       if (state == ENUM_NORMAL or state == ENUM_EMPTY) and (
-          re.match(RE_CLASS_DEFINITION, line) or
-          re.match(RE_STRUCT, line) or
-          re.match(RE_TYPEDEF, line) or
-          re.match(RE_ENUM, line) or
-          re.match(RE_MARK, line)):
+          RE_CLASS_DEFINITION.match(line) or
+          RE_STRUCT.match(line) or
+          RE_TYPEDEF.match(line) or
+          RE_ENUM.match(line) or
+          RE_MARK.match(line)):
         state = ENUM_NORMAL
         self.addDef(curFileName, curLineNum, line[2:])
         self.addSymbolDef(curFileName, curLineNum, line[2:])
         continue
 
       # Find define macro
-      if state == ENUM_NORMAL and re.match(RE_DEFINE, line):
+      if state == ENUM_NORMAL and RE_DEFINE.match(line):
         state = ENUM_DEFINE
         self.addDef(curFileName, curLineNum, line[2:])
         self.addMacroDef(curFileName, curLineNum, line[2:])
@@ -270,40 +274,40 @@ class CallTree_Cscope:
         continue
 
       # Find reference in define macro
-      if state == ENUM_DEFINE and re.match(RE_WORD_ONLY, line):
+      if state == ENUM_DEFINE and RE_WORD_ONLY.match(line):
         state = ENUM_DEFINE
         self.addRef(curFileName, curLineNum, line)
         continue
 
       # End of definition
-      if state == ENUM_DEFINE and re.match(RE_DEFINE_END, line):
+      if state == ENUM_DEFINE and RE_DEFINE_END.match(line):
         state = ENUM_NORMAL
         self.addMacroEnd(curFileName, curLineNum, curMacroName)
         curMacroName = STR_DEFAULT_MACRO
         continue
 
       # End of function
-      if (state == ENUM_NORMAL or state == ENUM_EMPTY) and re.match(RE_FUNCTION_END, line):
+      if (state == ENUM_NORMAL or state == ENUM_EMPTY) and RE_FUNCTION_END.match(line):
         state = ENUM_NORMAL
         self.addFuncEnd(curFileName, curLineNum, curFunctionName)
         curFunctionName = STR_DEFAULT_FUNCTION
         continue
 
       # Find filename
-      if (state == ENUM_NORMAL or state == ENUM_EMPTY) and re.match(RE_FILENAME, line):
+      if (state == ENUM_NORMAL or state == ENUM_EMPTY) and RE_FILENAME.match(line):
         curFileName = line[2:]
         curLineNum = 1
         state = ENUM_NORMAL
         continue
 
       # Find reference
-      if re.match(RE_REFERENCE, line):
+      if RE_REFERENCE.match(line):
         state = ENUM_NORMAL
         self.addRef(curFileName, curLineNum, line[2:])
         continue
 
       # Find reference as well
-      if re.match(RE_WORD_ONLY, line):
+      if RE_WORD_ONLY.match(line):
         state = ENUM_NORMAL
         self.addRef(curFileName, curLineNum, line)
         continue
@@ -319,6 +323,7 @@ class CallTree_Cscope:
     '''
 
     if BOOL_VERBOSE:
+      print(datetime.now())
       print('Build definition map ...')
 
     def _buildDefinitionMap(definitions):
@@ -483,6 +488,7 @@ class CallTree_Cscope:
 
   def buildTree(self):
     if BOOL_VERBOSE:
+      print(datetime.now())
       print('Build call tree ...')
 
     self.trees = {}
