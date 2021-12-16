@@ -36,35 +36,22 @@ STR_DEFAULT_FILENAME  = 'main.c'
 STR_DEFAULT_FUNCTION  = 'main'
 STR_DEFAULT_MACRO     = 'macro'
 
-STR_DEFINE_HEAD       = '\t#'
-STR_DEFINE_END_HEAD   = '\t)'
-STR_DEFINITION_HEAD   = '\t$'
-STR_ENUM_HEAD         = '\te'
-STR_FILENAME_HEAD     = '\t@'
-STR_FUNCTION_END_HEAD = '\t}'
-STR_MARK_HEAD         = '\tm'
-STR_REFERENCE_HEAD    = '\t`'
-STR_STRUCT_HEAD       = '\ts'
-STR_TYPEDEF_HEAD      = '\tt'
-STR_GLOBAL_VARIABLE_HEAD = '\tg'
-STR_CLASS_DEFINITION_HEAD = '\tc'
+STR_DEFINE_HEAD       = '#'
+STR_DEFINE_END_HEAD   = ')'
+STR_DEFINITION_HEAD   = '$'
+STR_ENUM_HEAD         = 'e'
+STR_FILENAME_HEAD     = '@'
+STR_FUNCTION_END_HEAD = '}'
+STR_MARK_HEAD         = 'm'
+STR_REFERENCE_HEAD    = '`'
+STR_STRUCT_HEAD       = 's'
+STR_TYPEDEF_HEAD      = 't'
+STR_GLOBAL_VARIABLE_HEAD = 'g'
+STR_CLASS_DEFINITION_HEAD = 'c'
 
 LIST_BLACKLIST        = args.blacklist.split(',') if len(args.blacklist) > 0 else []
 
-RE_CLASS_DEFINITION   = re.compile(r'^\tc\w+$')
-RE_DEFINE             = re.compile(r'^\t#\w+$')
-RE_DEFINE_END         = re.compile(r'^\t\)$')
-RE_DEFINITION         = re.compile(r'^\t\$\w+$')
-RE_ENUM               = re.compile(r'^\te\w+$')
-RE_FILENAME           = re.compile(r'^\t@(\w|/\w|\.\w|-\w)+$')
-RE_FUNCTION_END       = re.compile(r'^\t\}$')
-RE_GLOBAL_VARIABLE    = re.compile(r'^\tg\w+$')
-RE_LINE_NUMBER        = re.compile(r'^\d+\s')
-RE_MARK               = re.compile(r'^\tm\w+$')
-RE_REFERENCE          = re.compile(r'^\t`\w+$')
-RE_STRUCT             = re.compile(r'^\ts\w+$')
-RE_TYPEDEF            = re.compile(r'^\tt\w+$')
-RE_WORD_ONLY          = re.compile(r'^\w+$')
+RE_ISWORD             = re.compile('[\w\x80\xff]')
 
 class CallTree_Cscope:
   def __init__(self, symbols):
@@ -260,73 +247,61 @@ class CallTree_Cscope:
         state = ENUM_NORMAL
         continue
 
-      lineHead = line[:2]
-      lineEnd = line[2:]
+      if line[0] == '\t':
+        lineHead = line[1]
+        lineEnd = line[2:]
 
-      # Find definition
-      if (state == ENUM_NORMAL or state == ENUM_EMPTY) and lineHead == STR_DEFINITION_HEAD:
-        state = ENUM_NORMAL
-        self.addDef(curFileName, curLineNum, lineEnd)
-        self.addFuncDef(curFileName, curLineNum, lineEnd)
-        curFunctionName = self.encodeFileLineSymbol(curFileName, curLineNum, lineEnd)
-        continue
+        # Find reference
+        if lineHead == STR_REFERENCE_HEAD:
+          self.addRef(curFileName, curLineNum, lineEnd)
+          continue
 
-      # Find class definition, struct, typedef, enum, or enum value
-      if (state == ENUM_NORMAL or state == ENUM_EMPTY) and (
-          lineHead == STR_CLASS_DEFINITION_HEAD or
-          lineHead == STR_STRUCT_HEAD or
-          lineHead == STR_TYPEDEF_HEAD or
-          lineHead == STR_ENUM_HEAD or
-          lineHead == STR_MARK_HEAD):
-        state = ENUM_NORMAL
-        self.addDef(curFileName, curLineNum, lineEnd)
-        self.addSymbolDef(curFileName, curLineNum, lineEnd)
-        continue
+        # Find define macro
+        if state != ENUM_DEFINE and lineHead == STR_DEFINE_HEAD:
+          state = ENUM_DEFINE
+          self.addDef(curFileName, curLineNum, lineEnd)
+          self.addMacroDef(curFileName, curLineNum, lineEnd)
+          curMacroName = self.encodeFileLineSymbol(curFileName, curLineNum, lineEnd)
+          continue
 
-      # Find define macro
-      if state == ENUM_NORMAL and lineHead == STR_DEFINE_HEAD:
-        state = ENUM_DEFINE
-        self.addDef(curFileName, curLineNum, lineEnd)
-        self.addMacroDef(curFileName, curLineNum, lineEnd)
-        curMacroName = self.encodeFileLineSymbol(curFileName, curLineNum, lineEnd)
-        continue
+        # End of define macro
+        if state == ENUM_DEFINE and lineHead == STR_DEFINE_END_HEAD:
+          state = ENUM_NORMAL
+          self.addMacroEnd(curFileName, curLineNum, curMacroName)
+          curMacroName = STR_DEFAULT_MACRO
+          continue
+
+        # Find definition
+        if lineHead == STR_DEFINITION_HEAD:
+          self.addDef(curFileName, curLineNum, lineEnd)
+          self.addFuncDef(curFileName, curLineNum, lineEnd)
+          curFunctionName = self.encodeFileLineSymbol(curFileName, curLineNum, lineEnd)
+          continue
+
+        # End of function
+        if lineHead == STR_FUNCTION_END_HEAD:
+          self.addFuncEnd(curFileName, curLineNum, curFunctionName)
+          curFunctionName = STR_DEFAULT_FUNCTION
+          continue
+
+        # Find class definition, struct, typedef, enum, or enum value
+        if (lineHead == STR_CLASS_DEFINITION_HEAD or
+            lineHead == STR_STRUCT_HEAD or
+            lineHead == STR_TYPEDEF_HEAD or
+            lineHead == STR_ENUM_HEAD or
+            lineHead == STR_MARK_HEAD):
+          self.addDef(curFileName, curLineNum, lineEnd)
+          self.addSymbolDef(curFileName, curLineNum, lineEnd)
+          continue
+
+        # Find filename
+        if lineHead == STR_FILENAME_HEAD:
+          curFileName = lineEnd
+          curLineNum = 1
+          continue
 
       # Find reference in define macro
-      if state == ENUM_DEFINE and RE_WORD_ONLY.match(line):
-        state = ENUM_DEFINE
-        self.addRef(curFileName, curLineNum, line)
-        continue
-
-      # End of definition
-      if state == ENUM_DEFINE and lineHead == STR_DEFINE_END_HEAD:
-        state = ENUM_NORMAL
-        self.addMacroEnd(curFileName, curLineNum, curMacroName)
-        curMacroName = STR_DEFAULT_MACRO
-        continue
-
-      # End of function
-      if (state == ENUM_NORMAL or state == ENUM_EMPTY) and lineHead == STR_FUNCTION_END_HEAD:
-        state = ENUM_NORMAL
-        self.addFuncEnd(curFileName, curLineNum, curFunctionName)
-        curFunctionName = STR_DEFAULT_FUNCTION
-        continue
-
-      # Find filename
-      if (state == ENUM_NORMAL or state == ENUM_EMPTY) and lineHead == STR_FILENAME_HEAD:
-        curFileName = lineEnd
-        curLineNum = 1
-        state = ENUM_NORMAL
-        continue
-
-      # Find reference
-      if lineHead == STR_REFERENCE_HEAD:
-        state = ENUM_NORMAL
-        self.addRef(curFileName, curLineNum, lineEnd)
-        continue
-
-      # Find reference as well
-      if RE_WORD_ONLY.match(line):
-        state = ENUM_NORMAL
+      if RE_ISWORD.match(line[0]):
         self.addRef(curFileName, curLineNum, line)
         continue
 
