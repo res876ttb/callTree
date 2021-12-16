@@ -36,6 +36,19 @@ STR_DEFAULT_FILENAME  = 'main.c'
 STR_DEFAULT_FUNCTION  = 'main'
 STR_DEFAULT_MACRO     = 'macro'
 
+STR_DEFINE_HEAD       = '\t#'
+STR_DEFINE_END_HEAD   = '\t)'
+STR_DEFINITION_HEAD   = '\t$'
+STR_ENUM_HEAD         = '\te'
+STR_FILENAME_HEAD     = '\t@'
+STR_FUNCTION_END_HEAD = '\t}'
+STR_MARK_HEAD         = '\tm'
+STR_REFERENCE_HEAD    = '\t`'
+STR_STRUCT_HEAD       = '\ts'
+STR_TYPEDEF_HEAD      = '\tt'
+STR_GLOBAL_VARIABLE_HEAD = '\tg'
+STR_CLASS_DEFINITION_HEAD = '\tc'
+
 LIST_BLACKLIST        = args.blacklist.split(',') if len(args.blacklist) > 0 else []
 
 RE_CLASS_DEFINITION   = re.compile(r'^\tc\w+$')
@@ -67,6 +80,11 @@ class CallTree_Cscope:
     self.loadCscopeDB()
     self.buildDefinitionMap()
     self.buildTree()
+
+  def log(self, *args):
+    if BOOL_VERBOSE:
+      curTimeStr = str(datetime.now())
+      print("[%s]" % curTimeStr, *args)
 
   def decodeCscopeContent(self, fp):
     # 16 most frequent first chars
@@ -107,9 +125,7 @@ class CallTree_Cscope:
     # Reference: https://www.codegrepper.com/code-examples/python/UnicodeDecodeError%3A+%27utf-8%27+codec+can%27t+decode+byte+0x91+in+position+14%3A+invalid+start+byte
     content = fp.read().decode('ISO-8859-1')
 
-    if BOOL_VERBOSE:
-      print(datetime.now())
-      print('Decode cscope.out ...')
+    self.log('Decode cscope.out ...')
 
     for code in decodeMap:
       content = content.replace(code, decodeMap[code])
@@ -120,9 +136,7 @@ class CallTree_Cscope:
     return content.split('\n')
 
   def loadCscopeDB(self):
-    if BOOL_VERBOSE:
-      print(datetime.now())
-      print('Loading cscope.out...')
+    self.log('Loading cscope.out...')
 
     with open('cscope.out', 'rb') as fp:
       cscope = self.decodeCscopeContent(fp)
@@ -218,9 +232,7 @@ class CallTree_Cscope:
     return [fileName, int(lineNumber), symbol]
 
   def parseRef(self, cscope):
-    if BOOL_VERBOSE:
-      print(datetime.now())
-      print('Parsing cscope.out ...')
+    self.log('Parsing cscope.out ...')
 
     ENUM_NORMAL = 0
     ENUM_EMPTY = 1
@@ -239,38 +251,44 @@ class CallTree_Cscope:
         state = ENUM_EMPTY
         continue
 
+      if line == '' or line[0] == ' ':
+        continue
+
       # Find line number
-      if state == ENUM_EMPTY and RE_LINE_NUMBER.match(line):
+      if state == ENUM_EMPTY and line[0].isnumeric():
         curLineNum = int(line.split(' ')[0])
         state = ENUM_NORMAL
         continue
 
+      lineHead = line[:2]
+      lineEnd = line[2:]
+
       # Find definition
-      if (state == ENUM_NORMAL or state == ENUM_EMPTY) and RE_DEFINITION.match(line):
+      if (state == ENUM_NORMAL or state == ENUM_EMPTY) and lineHead == STR_DEFINITION_HEAD:
         state = ENUM_NORMAL
-        self.addDef(curFileName, curLineNum, line[2:])
-        self.addFuncDef(curFileName, curLineNum, line[2:])
-        curFunctionName = self.encodeFileLineSymbol(curFileName, curLineNum, line[2:])
+        self.addDef(curFileName, curLineNum, lineEnd)
+        self.addFuncDef(curFileName, curLineNum, lineEnd)
+        curFunctionName = self.encodeFileLineSymbol(curFileName, curLineNum, lineEnd)
         continue
 
       # Find class definition, struct, typedef, enum, or enum value
       if (state == ENUM_NORMAL or state == ENUM_EMPTY) and (
-          RE_CLASS_DEFINITION.match(line) or
-          RE_STRUCT.match(line) or
-          RE_TYPEDEF.match(line) or
-          RE_ENUM.match(line) or
-          RE_MARK.match(line)):
+          lineHead == STR_CLASS_DEFINITION_HEAD or
+          lineHead == STR_STRUCT_HEAD or
+          lineHead == STR_TYPEDEF_HEAD or
+          lineHead == STR_ENUM_HEAD or
+          lineHead == STR_MARK_HEAD):
         state = ENUM_NORMAL
-        self.addDef(curFileName, curLineNum, line[2:])
-        self.addSymbolDef(curFileName, curLineNum, line[2:])
+        self.addDef(curFileName, curLineNum, lineEnd)
+        self.addSymbolDef(curFileName, curLineNum, lineEnd)
         continue
 
       # Find define macro
-      if state == ENUM_NORMAL and RE_DEFINE.match(line):
+      if state == ENUM_NORMAL and lineHead == STR_DEFINE_HEAD:
         state = ENUM_DEFINE
-        self.addDef(curFileName, curLineNum, line[2:])
-        self.addMacroDef(curFileName, curLineNum, line[2:])
-        curMacroName = self.encodeFileLineSymbol(curFileName, curLineNum, line[2:])
+        self.addDef(curFileName, curLineNum, lineEnd)
+        self.addMacroDef(curFileName, curLineNum, lineEnd)
+        curMacroName = self.encodeFileLineSymbol(curFileName, curLineNum, lineEnd)
         continue
 
       # Find reference in define macro
@@ -280,30 +298,30 @@ class CallTree_Cscope:
         continue
 
       # End of definition
-      if state == ENUM_DEFINE and RE_DEFINE_END.match(line):
+      if state == ENUM_DEFINE and lineHead == STR_DEFINE_END_HEAD:
         state = ENUM_NORMAL
         self.addMacroEnd(curFileName, curLineNum, curMacroName)
         curMacroName = STR_DEFAULT_MACRO
         continue
 
       # End of function
-      if (state == ENUM_NORMAL or state == ENUM_EMPTY) and RE_FUNCTION_END.match(line):
+      if (state == ENUM_NORMAL or state == ENUM_EMPTY) and lineHead == STR_FUNCTION_END_HEAD:
         state = ENUM_NORMAL
         self.addFuncEnd(curFileName, curLineNum, curFunctionName)
         curFunctionName = STR_DEFAULT_FUNCTION
         continue
 
       # Find filename
-      if (state == ENUM_NORMAL or state == ENUM_EMPTY) and RE_FILENAME.match(line):
-        curFileName = line[2:]
+      if (state == ENUM_NORMAL or state == ENUM_EMPTY) and lineHead == STR_FILENAME_HEAD:
+        curFileName = lineEnd
         curLineNum = 1
         state = ENUM_NORMAL
         continue
 
       # Find reference
-      if RE_REFERENCE.match(line):
+      if lineHead == STR_REFERENCE_HEAD:
         state = ENUM_NORMAL
-        self.addRef(curFileName, curLineNum, line[2:])
+        self.addRef(curFileName, curLineNum, lineEnd)
         continue
 
       # Find reference as well
@@ -321,10 +339,7 @@ class CallTree_Cscope:
       }
     }
     '''
-
-    if BOOL_VERBOSE:
-      print(datetime.now())
-      print('Build definition map ...')
+    self.log('Build definition map ...')
 
     def _buildDefinitionMap(definitions):
       '''
@@ -360,8 +375,7 @@ class CallTree_Cscope:
   def matchBlackList(self, symbol):
     for blackListItem in LIST_BLACKLIST:
       if re.match(blackListItem, symbol):
-        if BOOL_VERBOSE:
-          print('Match blackList! Symbol:', symbol, 'Pattern:', blackListItem)
+        self.log('Match blackList! Symbol:', symbol, 'Pattern:', blackListItem)
         return True
 
     return False
@@ -487,9 +501,7 @@ class CallTree_Cscope:
     return callerDict
 
   def buildTree(self):
-    if BOOL_VERBOSE:
-      print(datetime.now())
-      print('Build call tree ...')
+    self.log('Build call tree ...')
 
     self.trees = {}
     for symbol in self.symbols:
