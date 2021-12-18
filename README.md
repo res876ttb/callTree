@@ -2,18 +2,15 @@
 
 ## Prerequisite
 
-* GNU global or cscope installed on the system
-* GNU global limitations:
-  * GNU global should be compiled with sqlite3 support
-  * GTAGS/GRTAGS/GPATH shuold be generated with `--sqlite3` options
-* cscope limitations: no
+* cscope tags with compression
+  * ASCII mode is not support currently
 
 ## Usage
 
 ```
-usage: calltree [-h] [-p PATH] [-b BLACKLIST] [-o OUTPUT] [-d DEPTH]
-                [-t {global,cscope}] [-v] [-s] [-g]
-                symbols
+usage: callTree.py [-h] [-p PATH] [-b BLACKLIST] [-o OUTPUT] [-d DEPTH] [-v]
+                   [-s] [-g]
+                   symbols
 
 positional arguments:
   symbols               The root symbols of caller tree. If you want to build
@@ -31,12 +28,8 @@ optional arguments:
   -o OUTPUT, --output OUTPUT
                         The output file name.
   -d DEPTH, --depth DEPTH
-                        Max depth of result. If set to -1, then the result is
-                        unlimited. Default is -1.
-  -t {global,cscope}, --tag_version {global,cscope}
-                        Choose tag system you want to use. Available choices:
-                        [global(tags generated with sqlite3 support), cscope]
-                        Default: cscope.
+                        Max depth of result. Default is 900, which is also
+                        maximal value.
   -v, --verbose         Show more log for debugging.
   -s, --show_position   Whether to show ref file and line number.
   -g, --background      Whether NOT to print output to stdout.
