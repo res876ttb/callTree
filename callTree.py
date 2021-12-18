@@ -405,22 +405,32 @@ class CallTree_Cscope:
       lineNumbers = [int(num) for num in self.macroEndMap[filePath]]
       macroEndIndex = binarySearch(lineNumbers, ENUM_GREATER_OR_EQUAL)
       if macroEndIndex > -1:
+        result = []
         macroEndLineNumber = lineNumbers[macroEndIndex]
-        [macroInfo] = self.macroEndMap[filePath][macroEndLineNumber]
-        _, macroLineNumber, symbol = self.decodeFileLineSymbol(macroInfo)
-        if macroLineNumber <= lineNumber and macroEndLineNumber >= lineNumber:
-          return [symbol]
+        macroInfos = self.macroEndMap[filePath][macroEndLineNumber]
+        for macroInfo in macroInfos:
+          _, macroLineNumber, symbol = self.decodeFileLineSymbol(macroInfo)
+          if macroLineNumber <= lineNumber and macroEndLineNumber >= lineNumber:
+            result.append(symbol)
+
+        if len(result) > 0:
+          return result
 
     # If not a macro define, find function definition position
     if filePath in self.functionEndMap:
       lineNumbers = [int(num) for num in self.functionEndMap[filePath]]
       functionEndIndex = binarySearch(lineNumbers, ENUM_GREATER_OR_EQUAL)
       if functionEndIndex > -1:
+        result = []
         functionEndLineNumber = lineNumbers[functionEndIndex]
-        [macroInfo] = self.functionEndMap[filePath][functionEndLineNumber]
-        _, functionLineNumber, symbol = self.decodeFileLineSymbol(macroInfo)
-        if functionLineNumber <= lineNumber and functionEndLineNumber >= lineNumber:
-          return [symbol]
+        macroInfos = self.functionEndMap[filePath][functionEndLineNumber]
+        for macroInfo in macroInfos:
+          _, functionLineNumber, symbol = self.decodeFileLineSymbol(macroInfo)
+          if functionLineNumber <= lineNumber and functionEndLineNumber >= lineNumber:
+            result.append(symbol)
+
+        if len(result) > 0:
+          return result
 
     # Search nothing
     return None
