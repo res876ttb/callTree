@@ -13,45 +13,45 @@ parser.add_argument('symbols', type=str, help='The root symbols of caller tree. 
 parser.add_argument('-p', '--path', type=str, default='.', help='Path to the cscope.out file or GPATH/GRTAGS/GTAGS with sqlite3 format.')
 parser.add_argument('-b', '--blacklist', type=str, default='', help='List of black list. Use comma to seperate each symbol with space. Regex matching is supported. For example, `DEBUG,DEBUG_\w+`')
 parser.add_argument('-o', '--output', type=str, default='calltree.txt', help='The output file name.')
-parser.add_argument('-d', '--depth', type=int, default=-1, help='Max depth of result. If set to -1, then the result is unlimited. Default is -1.')
+parser.add_argument('-d', '--depth', type=int, default=999, help='Max depth of result. Default is 999, which is also maximal value.')
 parser.add_argument('-t', '--tag_version', type=str, default='cscope', choices=['global', 'cscope'], help='Choose tag system you want to use. Available choices: [global(tags generated with sqlite3 support), cscope] Default: cscope.')
 parser.add_argument('-v', '--verbose', action='store_true', help='Show more log for debugging.')
 parser.add_argument('-s', '--show_position', action='store_true', help='Whether to show ref file and line number.')
 parser.add_argument('-g', '--background', action='store_true', help='Whether NOT to print output to stdout.')
 args = parser.parse_args()
 
-BOOL_VERBOSE          = args.verbose
-BOOL_SHOW_POSITION    = args.show_position
-BOOL_BACKGROUND       = args.background
+BOOL_VERBOSE              = args.verbose
+BOOL_SHOW_POSITION        = args.show_position
+BOOL_BACKGROUND           = args.background
 
-NUM_MAX_DEPTH         = args.depth
+NUM_MAX_DEPTH             = max(min(args.depth, 999), 1)
 
-STR_TRAVERSED         = '@Traversed'
-STR_BLACKLISTED       = '@Blacklisted'
-STR_MAX_DEPTH         = '@ReachMaxDepth'
-STR_NO_REFERENCE      = '@NoReference'
-STR_TAG_VERSION       = args.tag_version
-STR_FILENAME_SYMBOL   = '\t@'
-STR_DEFAULT_FILENAME  = 'main.c'
-STR_DEFAULT_FUNCTION  = 'main'
-STR_DEFAULT_MACRO     = 'macro'
+STR_TRAVERSED             = '@Traversed'
+STR_BLACKLISTED           = '@Blacklisted'
+STR_MAX_DEPTH             = '@ReachMaxDepth'
+STR_NO_REFERENCE          = '@NoReference'
+STR_TAG_VERSION           = args.tag_version
+STR_FILENAME_SYMBOL       = '\t@'
+STR_DEFAULT_FILENAME      = 'main.c'
+STR_DEFAULT_FUNCTION      = 'main'
+STR_DEFAULT_MACRO         = 'macro'
 
-STR_DEFINE_HEAD       = '#'
-STR_DEFINE_END_HEAD   = ')'
-STR_DEFINITION_HEAD   = '$'
-STR_ENUM_HEAD         = 'e'
-STR_FILENAME_HEAD     = '@'
-STR_FUNCTION_END_HEAD = '}'
-STR_MARK_HEAD         = 'm'
-STR_REFERENCE_HEAD    = '`'
-STR_STRUCT_HEAD       = 's'
-STR_TYPEDEF_HEAD      = 't'
-STR_GLOBAL_VARIABLE_HEAD = 'g'
+STR_DEFINE_HEAD           = '#'
+STR_DEFINE_END_HEAD       = ')'
+STR_DEFINITION_HEAD       = '$'
+STR_ENUM_HEAD             = 'e'
+STR_FILENAME_HEAD         = '@'
+STR_FUNCTION_END_HEAD     = '}'
+STR_MARK_HEAD             = 'm'
+STR_REFERENCE_HEAD        = '`'
+STR_STRUCT_HEAD           = 's'
+STR_TYPEDEF_HEAD          = 't'
+STR_GLOBAL_VARIABLE_HEAD  = 'g'
 STR_CLASS_DEFINITION_HEAD = 'c'
 
-LIST_BLACKLIST        = args.blacklist.split(',') if len(args.blacklist) > 0 else []
+LIST_BLACKLIST            = args.blacklist.split(',') if len(args.blacklist) > 0 else []
 
-RE_ISWORD             = re.compile('[\w\x80\xff]')
+RE_ISWORD                 = re.compile('[\w\x80\xff]')
 
 class CallTree_Cscope:
   def __init__(self, symbols):
@@ -73,7 +73,7 @@ class CallTree_Cscope:
       curTimeStr = str(datetime.now())
       print("[%s]" % curTimeStr, *args)
 
-  def decodeCscopeContent(self, fp):
+  def loadCscopeContent(self, fp):
     # 16 most frequent first chars
     dichar1 = " teisaprnl(of)=c"
     # 8 most frequent second chars
@@ -90,43 +90,48 @@ class CallTree_Cscope:
     def dicodeCompress(char1, char2):
       return chr((0o200 - 2) + dicode1[ord(char1)] + dicode2[ord(char2)])
 
-    decodeMap = {}
+    self.decodeMap = {}
+    self.encodeMap = {}
     for c1 in dichar1:
       for c2 in dichar2:
-        decodeMap[dicodeCompress(c1, c2)] = c1 + c2
-
-    keywordList = [
-      "#define ", "#include ", "break ", "case ", "char ",
-      "continue ", "default ", "double ", "\t\0", "\n\0",
-      "else ", "enum ", "extern ", "float ", "for (",
-      "goto ", "if (", "int ", "long ", "register ",
-      "return", "short ", "sizeof ", "static ", "struct ",
-      "switch (", "typedef ", "union ", "unsigned ", "void ",
-      "while ("
-    ]
-    keywordMap = {}
-    for i in range(len(keywordList)):
-      if i not in [8, 9]:
-        keywordMap[chr(i + 1)] = keywordList[i]
+        self.decodeMap[dicodeCompress(c1, c2)] = c1 + c2
+        self.encodeMap[c1 + c2] = dicodeCompress(c1, c2)
 
     # Reference: https://www.codegrepper.com/code-examples/python/UnicodeDecodeError%3A+%27utf-8%27+codec+can%27t+decode+byte+0x91+in+position+14%3A+invalid+start+byte
     content = fp.read().decode('ISO-8859-1')
-
-    self.log('Decode cscope.out ...')
-
-    for code in decodeMap:
-      content = content.replace(code, decodeMap[code])
-
-    for keyword in keywordMap:
-      content = content.replace(keyword, keywordMap[keyword])
-
     return content.split('\n')
+
+  def encodeSymbol(self, symbol):
+    if len(symbol) < 2:
+      return symbol
+
+    encodedSymbol = ''
+    i = 0
+    while i + 1 < len(symbol):
+      curCode = symbol[i:i + 2]
+      if curCode in self.encodeMap:
+        encodedSymbol += self.encodeMap[curCode]
+        i += 2
+      else:
+        encodedSymbol += symbol[i]
+        i += 1
+
+    if i < len(symbol):
+      encodedSymbol += symbol[-1]
+
+    return encodedSymbol
+
+  def decodeSymbol(self, symbol):
+    for code in self.decodeMap:
+      symbol = symbol.replace(code, self.decodeMap[code])
+
+    return symbol
 
   def loadCscopeDB(self):
     self.log('Loading cscope.out...')
 
     with open('cscope.out', 'rb') as fp:
-      cscope = self.decodeCscopeContent(fp)
+      cscope = self.loadCscopeContent(fp)
 
     '''
     format: {
@@ -452,23 +457,24 @@ class CallTree_Cscope:
     self.traversed[symbol] = callerList
 
     for caller in callerList:
+      decodedCaller = self.decodeSymbol(caller)
       if caller in self.traversed:
         if caller not in callerDict:
           if BOOL_SHOW_POSITION:
-            callerDict[caller] = {
+            callerDict[decodedCaller] = {
               'callee': self.toFileLine(refPosition[caller][0], refPosition[caller][1]),
               'caller': STR_TRAVERSED
             }
           else:
-            callerDict[caller] = STR_TRAVERSED
+            callerDict[decodedCaller] = STR_TRAVERSED
       else:
         if BOOL_SHOW_POSITION:
-          callerDict[caller] = {
+          callerDict[decodedCaller] = {
             'callee': self.toFileLine(refPosition[caller][0], refPosition[caller][1]),
             'caller': self.findAllCaller(caller, depth + 1)
           }
         else:
-          callerDict[caller] = self.findAllCaller(caller, depth + 1)
+          callerDict[decodedCaller] = self.findAllCaller(caller, depth + 1)
 
     if len(callerDict) == 0:
       return STR_NO_REFERENCE
@@ -480,7 +486,7 @@ class CallTree_Cscope:
 
     self.trees = {}
     for symbol in self.symbols:
-      self.trees[symbol] = self.findAllCaller(symbol, 0)
+      self.trees[symbol] = self.findAllCaller(self.encodeSymbol(symbol), 0)
 
 class CallTree_Global:
   def __init__(self, symbols):
