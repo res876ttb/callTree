@@ -13,7 +13,7 @@ parser.add_argument('symbols', type=str, help='The root symbols of caller tree. 
 parser.add_argument('-p', '--path', type=str, default='.', help='Path to the cscope.out file or GPATH/GRTAGS/GTAGS with sqlite3 format.')
 parser.add_argument('-b', '--blacklist', type=str, default='', help='List of black list. Use comma to seperate each symbol with space. Regex matching is supported. For example, `DEBUG,DEBUG_\w+`')
 parser.add_argument('-o', '--output', type=str, default='calltree.txt', help='The output file name.')
-parser.add_argument('-d', '--depth', type=int, default=999, help='Max depth of result. Default is 999, which is also maximal value.')
+parser.add_argument('-d', '--depth', type=int, default=900, help='Max depth of result. Default is 900, which is also maximal value.')
 parser.add_argument('-t', '--tag_version', type=str, default='cscope', choices=['global', 'cscope'], help='Choose tag system you want to use. Available choices: [global(tags generated with sqlite3 support), cscope] Default: cscope.')
 parser.add_argument('-v', '--verbose', action='store_true', help='Show more log for debugging.')
 parser.add_argument('-s', '--show_position', action='store_true', help='Whether to show ref file and line number.')
@@ -24,7 +24,7 @@ BOOL_VERBOSE              = args.verbose
 BOOL_SHOW_POSITION        = args.show_position
 BOOL_BACKGROUND           = args.background
 
-NUM_MAX_DEPTH             = max(min(args.depth, 999), 1)
+NUM_MAX_DEPTH             = max(min(args.depth, 900), 1)
 
 STR_TRAVERSED             = '@Traversed'
 STR_BLACKLISTED           = '@Blacklisted'
