@@ -545,6 +545,7 @@ class CallTree:
 
   def toHtml(self):
     htmlContent = '''
+
 <!DOCTYPE html>
 <html lang="en">
 
@@ -569,6 +570,11 @@ class CallTree:
       ele.classList.add('fa-angle-right');
       return ele;
     };
+
+    function toggleTextSelection() {
+      let root = document.getElementById('root');
+      root.classList.toggle('no-selection');
+    }
 
     function toggleChild(e) {
       e.stopPropagation();
@@ -676,6 +682,12 @@ class CallTree:
     .fa {
       width: 0.75rem;
     }
+    #setting {
+      position: fixed;
+      right: 1rem;
+      top: 1rem;
+      width: 300px;
+    }
   </style>
 </head>
 
@@ -683,7 +695,24 @@ class CallTree:
     <noscript>You need to enable JavaScript to run this app.</noscript>
     <div class="container" style="padding-top: 1rem;">
       <h1>Call Tree</h1>
-      <div id="root"></div>
+      <div id="root" class="no-selection"></div>
+      <div id="setting">
+        <div class="card">
+          <div class="card-body">
+            <h5 class="card-title" data-bs-toggle="collapse" data-bs-target="#collapseSetting" aria-expanded="false" aria-controls="collapseExample" style="cursor: pointer;">Setting</h5>
+            <div class="collapse show" id="collapseSetting">
+              <h6 class="card-subtitle mb-2 text-muted">
+                <i class="fa fa-arrow-up"></i>
+                Click to collapse setting menu
+              </h6>
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" role="switch" id="disableTextSelection" onchange="toggleTextSelection()" checked>
+                <label class="form-check-label" for="disableTextSelection">Disable text selection</label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-ka7Sk0Gln4gmtz2MlQnikT1wXgYsOg+OMhuP+IlRH9sENBO0LRn5q+8nbTov4+1p" crossorigin="anonymous"></script>
   </body>
