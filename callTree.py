@@ -51,7 +51,7 @@ LIST_BLACKLIST            = args.blacklist.split(',') if len(args.blacklist) > 0
 
 RE_ISWORD                 = re.compile('[\w\x80\xff]')
 
-class CallTree_Cscope:
+class CallTree:
   def __init__(self, symbols):
     # We should find cscope.out under current directory
     if not os.path.exists('cscope.out'):
@@ -496,11 +496,34 @@ class CallTree_Cscope:
     for symbol in self.symbols:
       self.trees[symbol] = self.findAllCaller(self.encodeSymbol(symbol), 0)
 
+  def toString(self):
+    spaces = {
+      0: '',
+    }
+
+    def toStr(node, nodeName, depth):
+      result = '%s %s\n' % (spaces[depth], nodeName)
+      depth1 = depth + 1
+      if depth1 not in spaces:
+        spaces[depth1] = '  ' * depth1
+
+      if type(node) == str:
+        return result + '%s %s\n' % (spaces[depth1], node)
+
+      for functionName in node:
+        result += toStr(node[functionName], functionName, depth1)
+
+      return result
+
+    result = ''
+    for symbol in self.trees:
+      result += toStr(self.trees[symbol], symbol, 0)
+    return result
+
 os.chdir(args.path)
 
-ct = CallTree_Cscope(args.symbols.split(','))
-
-treeStr = json.dumps(ct.trees, indent = 2)
+ct = CallTree(args.symbols.split(','))
+treeStr = ct.toString()
 
 if not BOOL_BACKGROUND:
   print(treeStr)
