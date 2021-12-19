@@ -12,7 +12,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('symbols', type=str, help='The root symbols of caller tree. If you want to build multiple trees at a time, use comma without space to seperate each symbol. For example, `symbol1,symbol2`')
 parser.add_argument('-p', '--path', type=str, default='.', help='Path to the cscope.out file or GPATH/GRTAGS/GTAGS with sqlite3 format.')
 parser.add_argument('-b', '--blacklist', type=str, default='', help='List of black list. Use comma to seperate each symbol with space. Regex matching is supported. For example, `DEBUG,DEBUG_\w+`')
-parser.add_argument('-o', '--output', type=str, default='calltree.txt', help='The output file name.')
+parser.add_argument('-o', '--output', type=str, default='calltree.html', help='The output HTML file name.')
 parser.add_argument('-d', '--depth', type=int, default=900, help='Max depth of result. Default is 900, which is also maximal value.')
 parser.add_argument('-v', '--verbose', action='store_true', help='Show more log for debugging.')
 parser.add_argument('-s', '--show_position', action='store_true', help='Whether to show ref file and line number.')
@@ -503,7 +503,10 @@ class CallTree:
       result = '%s %s\n' % (spaces[depth], nodeName)
       depth1 = depth + 1
       if depth1 == len(spaces):
-        spaces.append('  ' * depth1)
+        if depth1 > 50:
+          spaces.append('%d' % depth1)
+        else:
+          spaces.append('  ' * depth1)
 
       if type(node) == str:
         return result + '%s %s\n' % (spaces[depth1], node)
@@ -518,10 +521,162 @@ class CallTree:
       result += toStr(self.trees[symbol], symbol, 0)
     return result
 
+  def toJsList(self):
+    result = '{'
+
+    def flatten(node):
+      nonlocal result
+
+      for callee in node:
+        if type(node[callee]) == str:
+          result += '"%s":"%s",' % (callee, node[callee])
+        else:
+          result += '"%s":{' % callee
+          flatten(node[callee])
+          result += '},'
+
+    for symbol in self.trees:
+      result += '"%s":{' % symbol
+      flatten(self.trees[symbol])
+      result += '},'
+
+    result += '}'
+    return result
+
+  def toHtml(self):
+    htmlHead = '''
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CallTree</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
+  <script>
+    var callTree = %s;
+    var callMap = {};
+
+    function toggleChild(e) {
+      e.stopPropagation();
+      let nextElement = e.target.nextSibling;
+      if (!nextElement) return;
+
+      if (nextElement.classList.contains('hide')) {
+        console.log('hide -> no hide');
+      } else {
+        console.log('no hide -> hide');
+      }
+      nextElement.classList.toggle('hide');
+    }
+
+    function buildCallMap(node) {
+      if (typeof(node) === 'string') return;
+
+      for (var caller in node) {
+        console.assert(
+          node[caller] === '@Traversed' ||
+            node[caller] === '@NoReference' ||
+            callMap[caller] === undefined,
+          `${caller} should not in callMap!! Old:`, callMap[caller], 'new: ', node[caller]
+        );
+        callMap[caller] = node[caller];
+        buildCallMap(node[caller])
+      }
+    };
+
+    function drawMap(node, nodeName) {
+      let element = document.createElement('div');
+      let text = document.createElement('div');
+      let childWrapper = document.createElement('div');
+      text.innerText = nodeName;
+      text.onclick = toggleChild;
+      text.classList.add('node-button')
+
+      element.className = 'node';
+      element.appendChild(text);
+
+      if (node === '@Traversed' || node === '@NoReference') {
+        let traversedElement = document.createElement('div')
+        traversedElement.innerText = node;
+        traversedElement.classList.add('node');
+        if (node === '@NoReference') {
+          traversedElement.classList.add('cursor-not-allowed');
+        }
+        childWrapper.appendChild(traversedElement);
+      } else {
+        for (let callee in node) {
+          childWrapper.appendChild(drawMap(node[callee], callee));
+        }
+      }
+      element.appendChild(childWrapper);
+
+      return element;
+    }
+
+    window.onload = function() {
+      let rootEle = document.getElementById('root');
+      let container = document.createElement('div')
+      container.classList.add('container');
+      buildCallMap(callTree);
+      for (let caller in callTree) {
+        container.appendChild(drawMap(callTree[caller], caller));
+      }
+      rootEle.appendChild(container);
+    }
+  </script>
+  <style>
+    .node {
+      padding-left: 1rem;
+      border-left: 1px dotted gray;
+    }
+    .node-button {
+      cursor: pointer;
+      transition: 0.15s;
+      padding: 0rem 1rem;
+      position: relative;
+      left: -1rem;
+      border-radius: 0.2rem;
+    }
+    .node-button:hover {
+      background-color: rgba(0, 0, 0, 0.1);
+    }
+    .hide {
+      display: none;
+    }
+    .cursor-not-allowed {
+      cursor: not-allowed;
+    }
+    .no-selection {
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      -khtml-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
+    }
+  </style>
+</head>
+''' % self.toJsList()
+
+    htmlBegin = '''
+<!DOCTYPE html>
+<html lang="en">
+'''
+
+    htmlBody = '''
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-ka7Sk0Gln4gmtz2MlQnikT1wXgYsOg+OMhuP+IlRH9sENBO0LRn5q+8nbTov4+1p" crossorigin="anonymous"></script>
+  </body>
+'''
+
+    htmlEnd = '</html>'
+
+    return htmlBegin + htmlHead + htmlBody + htmlEnd
+
 os.chdir(args.path)
 
 ct = CallTree(args.symbols.split(','))
-treeStr = ct.toString()
+treeStr = ct.toHtml()
 
 if not BOOL_BACKGROUND:
   print(treeStr)
