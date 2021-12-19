@@ -497,15 +497,13 @@ class CallTree:
       self.trees[symbol] = self.findAllCaller(self.encodeSymbol(symbol), 0)
 
   def toString(self):
-    spaces = {
-      0: '',
-    }
+    spaces = ['']
 
     def toStr(node, nodeName, depth):
       result = '%s %s\n' % (spaces[depth], nodeName)
       depth1 = depth + 1
-      if depth1 not in spaces:
-        spaces[depth1] = '  ' * depth1
+      if depth1 == len(spaces):
+        spaces.append('  ' * depth1)
 
       if type(node) == str:
         return result + '%s %s\n' % (spaces[depth1], node)
