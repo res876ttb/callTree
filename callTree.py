@@ -544,26 +544,47 @@ class CallTree:
     return result
 
   def toHtml(self):
-    htmlHead = '''
+    htmlContent = '''
+<!DOCTYPE html>
+<html lang="en">
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>CallTree</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
   <script>
     var callTree = %s;
     var callMap = {};
+    var getArrowDown = function() {
+      let ele = document.createElement('i');
+      ele.classList.add('fa');
+      ele.classList.add('fa-angle-down');
+      return ele;
+    };
+    var getArrowRight = function() {
+      let ele = document.createElement('i');
+      ele.classList.add('fa');
+      ele.classList.add('fa-angle-right');
+      return ele;
+    };
 
     function toggleChild(e) {
       e.stopPropagation();
+      let innerText = e.target.innerText
       let nextElement = e.target.nextSibling;
       if (!nextElement) return;
 
+      e.target.innerHTML = '';
+
       if (nextElement.classList.contains('hide')) {
-        console.log('hide -> no hide');
+        e.target.appendChild(getArrowDown());
       } else {
-        console.log('no hide -> hide');
+        e.target.appendChild(getArrowRight());
       }
+
+      e.target.appendChild(document.createTextNode(innerText));
       nextElement.classList.toggle('hide');
     }
 
@@ -586,7 +607,7 @@ class CallTree:
       let element = document.createElement('div');
       let text = document.createElement('div');
       let childWrapper = document.createElement('div');
-      text.innerText = nodeName;
+      text.innerHTML = '<i class="fa fa-angle-down"></i> ' + nodeName;
       text.onclick = toggleChild;
       text.classList.add('node-button')
 
@@ -613,13 +634,13 @@ class CallTree:
 
     window.onload = function() {
       let rootEle = document.getElementById('root');
-      let container = document.createElement('div')
-      container.classList.add('container');
+      let paddingBalancer = document.createElement('div');
+      paddingBalancer.style.paddingLeft = '1rem';
       buildCallMap(callTree);
       for (let caller in callTree) {
-        container.appendChild(drawMap(callTree[caller], caller));
+        paddingBalancer.appendChild(drawMap(callTree[caller], caller));
       }
-      rootEle.appendChild(container);
+      rootEle.appendChild(paddingBalancer);
     }
   </script>
   <style>
@@ -652,34 +673,29 @@ class CallTree:
       -ms-user-select: none;
       user-select: none;
     }
+    .fa {
+      width: 0.75rem;
+    }
   </style>
 </head>
-''' % self.toJsList()
 
-    htmlBegin = '''
-<!DOCTYPE html>
-<html lang="en">
-'''
-
-    htmlBody = '''
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root"></div>
+    <div class="container" style="padding-top: 1rem;">
+      <h1>Call Tree</h1>
+      <div id="root"></div>
+    </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-ka7Sk0Gln4gmtz2MlQnikT1wXgYsOg+OMhuP+IlRH9sENBO0LRn5q+8nbTov4+1p" crossorigin="anonymous"></script>
   </body>
-'''
+</html>
+''' % self.toJsList()
 
-    htmlEnd = '</html>'
-
-    return htmlBegin + htmlHead + htmlBody + htmlEnd
+    return htmlContent
 
 os.chdir(args.path)
 
 ct = CallTree(args.symbols.split(','))
 treeStr = ct.toHtml()
-
-if not BOOL_BACKGROUND:
-  print(treeStr)
 
 with open(args.output, 'w') as fp:
   fp.write(treeStr)
