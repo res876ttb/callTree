@@ -545,7 +545,6 @@ class CallTree:
 
   def toHtml(self):
     htmlContent = '''
-
 <!DOCTYPE html>
 <html lang="en">
 
@@ -578,19 +577,30 @@ class CallTree:
 
     function toggleChild(e) {
       e.stopPropagation();
-      let innerText = e.target.innerText
-      let nextElement = e.target.nextSibling;
-      if (!nextElement) return;
-
-      e.target.innerHTML = '';
-
-      if (nextElement.classList.contains('hide')) {
-        e.target.appendChild(getArrowDown());
+      let innerText = null;
+      let nextElement = null;
+      let target = null;
+      if (e.target.classList && e.target.classList.contains('fa')) {
+        innerText = e.target.nextSibling.textContent;
+        nextElement = e.target.parentNode.nextSibling;
+        target = e.target.parentNode;
       } else {
-        e.target.appendChild(getArrowRight());
+        innerText = e.target.innerText;
+        nextElement = e.target.nextSibling;
+        target = e.target;
       }
 
-      e.target.appendChild(document.createTextNode(innerText));
+      if (!nextElement || !nextElement.classList) return;
+
+      target.innerHTML = '';
+
+      if (nextElement.classList.contains('hide')) {
+        target.appendChild(getArrowDown());
+      } else {
+        target.appendChild(getArrowRight());
+      }
+
+      target.appendChild(document.createTextNode(innerText));
       nextElement.classList.toggle('hide');
     }
 
@@ -613,9 +623,10 @@ class CallTree:
       let element = document.createElement('div');
       let text = document.createElement('div');
       let childWrapper = document.createElement('div');
-      text.innerHTML = '<i class="fa fa-angle-down"></i> ' + nodeName;
+      text.appendChild(getArrowDown());
+      text.appendChild(document.createTextNode(' ' + nodeName))
       text.onclick = toggleChild;
-      text.classList.add('node-button')
+      text.classList.add('node-button');
 
       element.className = 'node';
       element.appendChild(text);
@@ -636,6 +647,49 @@ class CallTree:
       element.appendChild(childWrapper);
 
       return element;
+    }
+
+    function expandAll() {
+      let elements = null;
+
+      elements = document.getElementsByClassName('node');
+      for (let i = 0; i < elements.length; i++) {
+        let element = elements[i];
+        if (element.children.length < 2) continue;
+        let classList = element.children[1].classList;
+        if (classList.contains('hide')) classList.remove('hide');
+      }
+
+      elements = document.getElementsByClassName('node-button');
+      for (let i = 0; i < elements.length; i++) {
+        let element = elements[i];
+        let classList = element.children[0].classList;
+        if (classList.contains('fa-angle-right')) {
+          classList.remove('fa-angle-right');
+          classList.add('fa-angle-down');
+        }
+      }
+    }
+
+    function collapseAll() {
+      let elements = null;
+
+      elements = document.getElementsByClassName('node');
+      for (let i = 0; i < elements.length; i++) {
+        let element = elements[i];
+        if (element.children.length < 2) continue;
+        element.children[1].classList.add('hide');
+      }
+
+      elements = document.getElementsByClassName('node-button');
+      for (let i = 0; i < elements.length; i++) {
+        let element = elements[i];
+        let classList = element.children[0].classList;
+        if (classList.contains('fa-angle-down')) {
+          classList.remove('fa-angle-down');
+          classList.add('fa-angle-right');
+        }
+      }
     }
 
     window.onload = function() {
@@ -705,6 +759,10 @@ class CallTree:
                 <i class="fa fa-arrow-up"></i>
                 Click to collapse setting menu
               </h6>
+              <div class="btn-group" role="group" aria-label="Collapse/Expand buttons">
+                <button type="button" class="btn btn-outline-primary" onclick="collapseAll()">Collapse All</button>
+                <button type="button" class="btn btn-outline-primary" onclick="expandAll()">Expand All</button>
+              </div>
               <div class="form-check form-switch">
                 <input class="form-check-input" type="checkbox" role="switch" id="disableTextSelection" onchange="toggleTextSelection()" checked>
                 <label class="form-check-label" for="disableTextSelection">Disable text selection</label>
