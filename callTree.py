@@ -557,18 +557,34 @@ class CallTree:
   <script>
     var callTree = %s;
     var callMap = {};
-    var getArrowDown = function() {
+
+    function getArrowDown() {
       let ele = document.createElement('i');
       ele.classList.add('fa');
       ele.classList.add('fa-angle-down');
       return ele;
     };
-    var getArrowRight = function() {
+
+    function getArrowRight() {
       let ele = document.createElement('i');
       ele.classList.add('fa');
       ele.classList.add('fa-angle-right');
       return ele;
     };
+
+    function getCopy() {
+      let ele = document.createElement('i');
+      ele.classList.add('fa');
+      ele.classList.add('fa-copy');
+      return ele;
+    }
+
+    function getLink() {
+      let ele = document.createElement('i');
+      ele.classList.add('fa');
+      ele.classList.add('fa-link');
+      return ele;
+    }
 
     function toggleTextSelection() {
       let root = document.getElementById('root');
@@ -592,15 +608,14 @@ class CallTree:
 
       if (!nextElement || !nextElement.classList) return;
 
-      target.innerHTML = '';
-
       if (nextElement.classList.contains('hide')) {
-        target.appendChild(getArrowDown());
+        target.children[0].classList.remove('fa-angle-right');
+        target.children[0].classList.add('fa-angle-down');
       } else {
-        target.appendChild(getArrowRight());
+        target.children[0].classList.remove('fa-angle-down');
+        target.children[0].classList.add('fa-angle-right');
       }
 
-      target.appendChild(document.createTextNode(innerText));
       nextElement.classList.toggle('hide');
     }
 
@@ -617,36 +632,29 @@ class CallTree:
         callMap[caller] = node[caller];
         buildCallMap(node[caller])
       }
-    };
+    }
 
-    function drawMap(node, nodeName) {
-      let element = document.createElement('div');
-      let text = document.createElement('div');
-      let childWrapper = document.createElement('div');
-      text.appendChild(getArrowDown());
-      text.appendChild(document.createTextNode(' ' + nodeName))
-      text.onclick = toggleChild;
-      text.classList.add('node-button');
+    function collapseAll() {
+      let elements = null;
 
-      element.className = 'node';
-      element.appendChild(text);
+      elements = document.getElementsByClassName('node');
+      for (let i = 0; i < elements.length; i++) {
+        let element = elements[i];
+        if (element.children.length < 2) continue;
+        element.children[1].classList.add('hide');
+      }
 
-      if (node === '@Traversed' || node === '@NoReference') {
-        let traversedElement = document.createElement('div')
-        traversedElement.innerText = node;
-        traversedElement.classList.add('node');
-        if (node === '@NoReference') {
-          traversedElement.classList.add('cursor-not-allowed');
-        }
-        childWrapper.appendChild(traversedElement);
-      } else {
-        for (let callee in node) {
-          childWrapper.appendChild(drawMap(node[callee], callee));
+      elements = document.getElementsByClassName('node-button');
+      for (let i = 0; i < elements.length; i++) {
+        let element = elements[i];
+        let classList = element.children[0].classList;
+        if (classList.contains('fa-angle-down')) {
+          classList.remove('fa-angle-down');
+          classList.add('fa-angle-right');
         }
       }
-      element.appendChild(childWrapper);
 
-      return element;
+      window.scrollTo(0, 0);
     }
 
     function expandAll() {
@@ -671,25 +679,103 @@ class CallTree:
       }
     }
 
-    function collapseAll() {
-      let elements = null;
+    function autoExpand(element) {
+      // Expand all the parent elements
+      if (element && element.classList) {
+        if (element.classList.contains('hide')) {
+          element.classList.remove('hide');
+        }
 
-      elements = document.getElementsByClassName('node');
-      for (let i = 0; i < elements.length; i++) {
-        let element = elements[i];
-        if (element.children.length < 2) continue;
-        element.children[1].classList.add('hide');
+        autoExpand(element.parentNode);
       }
+    }
 
-      elements = document.getElementsByClassName('node-button');
-      for (let i = 0; i < elements.length; i++) {
-        let element = elements[i];
-        let classList = element.children[0].classList;
-        if (classList.contains('fa-angle-down')) {
-          classList.remove('fa-angle-down');
-          classList.add('fa-angle-right');
+    function drawMap(node, nodeName) {
+      let element = document.createElement('div');
+      let text = document.createElement('div');
+      let childWrapper = document.createElement('div');
+      let copy = getCopy();
+
+      copy.onclick = copyText;
+
+      text.appendChild(getArrowDown());
+      text.appendChild(document.createTextNode(` ${nodeName} `));
+      text.appendChild(copy);
+      text.onclick = toggleChild;
+      text.classList.add('node-button');
+
+      element.className = 'node';
+      element.appendChild(text);
+
+      if (node === '@Traversed' || node === '@NoReference') {
+        let traversedElement = document.createElement('div')
+        traversedElement.classList.add('node');
+        if (node === '@NoReference') {
+          traversedElement.innerText = node;
+          traversedElement.classList.add('cursor-not-allowed');
+        } else {
+          let linkElement = document.createElement('a');
+          let traversedButton = document.createElement('div');
+
+          traversedButton.classList.add('node-button');
+          traversedButton.innerText = node;
+
+          linkElement.href = '#' + nodeName;
+          linkElement.appendChild(document.createTextNode(' '));
+          linkElement.appendChild(getLink());
+
+          traversedButton.appendChild(linkElement);
+          traversedElement.appendChild(traversedButton);
+          traversedElement.onclick = () => {
+            // Remove selected from all components with class 'selected'
+            let selectedElements = document.getElementsByClassName('selected');
+            for (let i = 0; i < selectedElements.length; i++) {
+              if (!selectedElements[i].classList) continue;
+              selectedElements[i].classList.remove('selected');
+            }
+
+            // Add style to traversed element
+            let targetElement = document.getElementById(nodeName);
+            if (!targetElement || !targetElement.children) return;
+            targetElement.children[0].classList.add('selected');
+
+            // Auto expand
+            autoExpand(targetElement.children[0]);
+          };
+        }
+        childWrapper.appendChild(traversedElement);
+      } else {
+        element.id = nodeName;
+        for (let callee in node) {
+          childWrapper.appendChild(drawMap(node[callee], callee));
         }
       }
+      element.appendChild(childWrapper);
+
+      return element;
+    }
+
+    function copyText(e) {
+      e.stopPropagation();
+
+      let textToCopy = e.target.parentNode.innerText.slice(1,-1);
+
+      if (!navigator) {
+        // Show fail toasts
+        let toast = new bootstrap.Toast(document.getElementById('copy-fail'));
+        toast.show();
+        return;
+      }
+
+      navigator.clipboard.writeText(textToCopy).then(() => {
+        // Show success toasts
+        let toast = new bootstrap.Toast(document.getElementById('copy-success'));
+        toast.show();
+      }).catch(err => {
+        // Show fail toasts
+        let toast = new bootstrap.Toast(document.getElementById('copy-fail'));
+        toast.show();
+      })
     }
 
     window.onload = function() {
@@ -716,7 +802,14 @@ class CallTree:
       left: -1rem;
       border-radius: 0.2rem;
     }
-    .node-button:hover {
+    .clickable {
+      cursor: pointer;
+      transition: 0.15s;
+      padding: 0rem 1rem;
+      position: relative;
+      border-radius: 0.2rem;
+    }
+    .node-button:hover, .clickable:hover {
       background-color: rgba(0, 0, 0, 0.1);
     }
     .hide {
@@ -724,6 +817,7 @@ class CallTree:
     }
     .cursor-not-allowed {
       cursor: not-allowed;
+      color: rgba(0, 0, 0, 0.5);
     }
     .no-selection {
       -webkit-touch-callout: none;
@@ -736,11 +830,29 @@ class CallTree:
     .fa {
       width: 0.75rem;
     }
+    .fa-copy{
+      opacity: 0.3;
+      transition-duration: 0.15s;
+      color: green;
+    }
+    .fa-link {
+      opacity: 0.3;
+      transition-duration: 0.15s;
+      cursor: pointer;
+    }
+    .fa-copy:hover, .fa-link:hover {
+      opacity: 1;
+    }
+    .selected{
+      background-color: rgba(252, 220, 42, 0.336);
+    }
+    a {
+      text-decoration: none;
+    }
     #setting {
       position: fixed;
       right: 1rem;
       top: 1rem;
-      width: 300px;
     }
   </style>
 </head>
@@ -753,21 +865,33 @@ class CallTree:
       <div id="setting">
         <div class="card">
           <div class="card-body">
-            <h5 class="card-title" data-bs-toggle="collapse" data-bs-target="#collapseSetting" aria-expanded="false" aria-controls="collapseExample" style="cursor: pointer;">Setting</h5>
-            <div class="collapse show" id="collapseSetting">
-              <h6 class="card-subtitle mb-2 text-muted">
-                <i class="fa fa-arrow-up"></i>
-                Click to collapse setting menu
-              </h6>
-              <div class="btn-group" role="group" aria-label="Collapse/Expand buttons">
-                <button type="button" class="btn btn-outline-primary" onclick="collapseAll()">Collapse All</button>
-                <button type="button" class="btn btn-outline-primary" onclick="expandAll()">Expand All</button>
-              </div>
-              <div class="form-check form-switch">
-                <input class="form-check-input" type="checkbox" role="switch" id="disableTextSelection" onchange="toggleTextSelection()" checked>
-                <label class="form-check-label" for="disableTextSelection">Disable text selection</label>
-              </div>
+            <div class="btn-group" role="group" aria-label="Collapse/Expand buttons">
+              <button type="button" class="btn btn-outline-primary" onclick="collapseAll()">Collapse All</button>
+              <button type="button" class="btn btn-outline-primary" onclick="expandAll()">Expand All</button>
             </div>
+          </div>
+        </div>
+      </div>
+      <div style="height: 100vh;"></div>
+    </div>
+    <div>
+      <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 11">
+        <div id='copy-success' class="toast align-items-center text-white bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
+          <div class="d-flex">
+            <div class="toast-body">
+              Copy function name successed!
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+          </div>
+        </div>
+      </div>
+      <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 11">
+        <div id='copy-fail' class="toast align-items-center text-white bg-danger border-0" role="alert" aria-live="assertive" aria-atomic="true">
+          <div class="d-flex">
+            <div class="toast-body">
+              Copy function name failed!
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
           </div>
         </div>
       </div>
