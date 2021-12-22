@@ -713,6 +713,7 @@ class CallTree:
         if (node === '@NoReference') {
           traversedElement.innerText = node;
           traversedElement.classList.add('cursor-not-allowed');
+          element.id = nodeName;
         } else {
           let linkElement = document.createElement('a');
           let traversedButton = document.createElement('div');
