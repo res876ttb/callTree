@@ -8,9 +8,9 @@
 ## Usage
 
 ```
-usage: callTree.py [-h] [-p PATH] [-b BLACKLIST] [-o OUTPUT] [-d DEPTH] [-v]
-                   [-s] [-g]
-                   symbols
+usage: calltree [-h] [-p PATH] [-b BLACKLIST] [-o OUTPUT] [-d DEPTH] [-v] [-n]
+                [-g]
+                symbols
 
 positional arguments:
   symbols               The root symbols of caller tree. If you want to build
@@ -26,18 +26,18 @@ optional arguments:
                         with space. Regex matching is supported. For example,
                         `DEBUG,DEBUG_\w+`
   -o OUTPUT, --output OUTPUT
-                        The output file name.
+                        The output HTML file name.
   -d DEPTH, --depth DEPTH
                         Max depth of result. Default is 900, which is also
                         maximal value.
   -v, --verbose         Show more log for debugging.
-  -s, --show_position   Whether to show ref file and line number.
+  -n, --no_position     Whether NOT to show ref file and line number.
   -g, --background      Whether NOT to print output to stdout.
 ```
 
 ## TODO
 
 - [x] Add cscope support
-- [ ] Generate static HTML for easy tracing
-- [ ] Interactive web for code tracing
+- [x] Generate static HTML for easy tracing
+- [ ] Interactive web for code tracing (Pending)
 

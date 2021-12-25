@@ -15,12 +15,12 @@ parser.add_argument('-b', '--blacklist', type=str, default='', help='List of bla
 parser.add_argument('-o', '--output', type=str, default='calltree.html', help='The output HTML file name.')
 parser.add_argument('-d', '--depth', type=int, default=900, help='Max depth of result. Default is 900, which is also maximal value.')
 parser.add_argument('-v', '--verbose', action='store_true', help='Show more log for debugging.')
-parser.add_argument('-s', '--show_position', action='store_false', help='Whether NOT to show ref file and line number.')
+parser.add_argument('-n', '--no_position', action='store_false', help='Whether NOT to show ref file and line number.')
 parser.add_argument('-g', '--background', action='store_true', help='Whether NOT to print output to stdout.')
 args = parser.parse_args()
 
 BOOL_VERBOSE              = args.verbose
-BOOL_SHOW_POSITION        = args.show_position
+BOOL_NO_POSITION        = args.no_position
 BOOL_BACKGROUND           = args.background
 
 NUM_MAX_DEPTH             = max(min(args.depth, 900), 1)
@@ -469,7 +469,7 @@ class CallTree:
       decodedCaller = self.decodeSymbol(caller)
       if caller in self.traversed:
         if caller not in callerDict:
-          if BOOL_SHOW_POSITION:
+          if BOOL_NO_POSITION:
             callerDict[decodedCaller] = {
               'callee': self.toFileLine(refPosition[caller][0], refPosition[caller][1]),
               'caller': STR_TRAVERSED
@@ -477,7 +477,7 @@ class CallTree:
           else:
             callerDict[decodedCaller] = STR_TRAVERSED
       else:
-        if BOOL_SHOW_POSITION:
+        if BOOL_NO_POSITION:
           callerDict[decodedCaller] = {
             'callee': self.toFileLine(refPosition[caller][0], refPosition[caller][1]),
             'caller': self.findAllCaller(caller, depth + 1)
@@ -947,7 +947,7 @@ class CallTree:
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-ka7Sk0Gln4gmtz2MlQnikT1wXgYsOg+OMhuP+IlRH9sENBO0LRn5q+8nbTov4+1p" crossorigin="anonymous"></script>
   </body>
 </html>
-''' % ('true' if BOOL_SHOW_POSITION else 'false', self.toJsList())
+''' % ('true' if BOOL_NO_POSITION else 'false', self.toJsList())
 
     return htmlContent
 
