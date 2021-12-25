@@ -15,7 +15,7 @@ parser.add_argument('-b', '--blacklist', type=str, default='', help='List of bla
 parser.add_argument('-o', '--output', type=str, default='calltree.html', help='The output HTML file name.')
 parser.add_argument('-d', '--depth', type=int, default=900, help='Max depth of result. Default is 900, which is also maximal value.')
 parser.add_argument('-v', '--verbose', action='store_true', help='Show more log for debugging.')
-parser.add_argument('-s', '--show_position', action='store_true', help='Whether to show ref file and line number.')
+parser.add_argument('-s', '--show_position', action='store_false', help='Whether NOT to show ref file and line number.')
 parser.add_argument('-g', '--background', action='store_true', help='Whether NOT to print output to stdout.')
 args = parser.parse_args()
 
@@ -126,7 +126,7 @@ class CallTree:
     return symbol
 
   def loadCscopeDB(self):
-    self.log('Loading cscope.out...')
+    self.log('Loading cscope.out ...')
 
     with open('cscope.out', 'rb') as fp:
       cscope = self.loadCscopeContent(fp)
@@ -359,7 +359,8 @@ class CallTree:
     return False
 
   def toFileLine(self, filePath, lineNumber):
-    return "File: %s, Line %d" % (filePath, lineNumber)
+    # return "File: %s, Line %d" % (filePath, lineNumber)
+    return "%s,%d" % (filePath, lineNumber)
 
   def findCaller(self, filePath, lineNumber, symbol):
     ENUM_GREATER_OR_EQUAL = 0
@@ -544,6 +545,7 @@ class CallTree:
     return result
 
   def toHtml(self):
+    self.log('Convert tree to HTML ...')
     htmlContent = '''
 <!DOCTYPE html>
 <html lang="en">
@@ -555,8 +557,8 @@ class CallTree:
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
   <script>
+    var showPosition = %s;
     var callTree = %s;
-    var callMap = {};
 
     function getArrowDown() {
       let ele = document.createElement('i');
@@ -619,21 +621,6 @@ class CallTree:
       nextElement.classList.toggle('hide');
     }
 
-    function buildCallMap(node) {
-      if (typeof(node) === 'string') return;
-
-      for (var caller in node) {
-        console.assert(
-          node[caller] === '@Traversed' ||
-            node[caller] === '@NoReference' ||
-            callMap[caller] === undefined,
-          `${caller} should not in callMap!! Old:`, callMap[caller], 'new: ', node[caller]
-        );
-        callMap[caller] = node[caller];
-        buildCallMap(node[caller])
-      }
-    }
-
     function collapseAll() {
       let elements = null;
 
@@ -690,19 +677,44 @@ class CallTree:
       }
     }
 
-    function drawMap(node, nodeName) {
+    function drawMap(node, nodeName, calleeInfo='') {
       let element = document.createElement('div');
       let text = document.createElement('div');
       let childWrapper = document.createElement('div');
       let copy = getCopy();
 
-      copy.onclick = copyText;
+      copy.onclick = copyFunctionName;
 
       text.appendChild(getArrowDown());
       text.appendChild(document.createTextNode(` ${nodeName} `));
       text.appendChild(copy);
       text.onclick = toggleChild;
       text.classList.add('node-button');
+
+      // Append callee info if available
+      if (calleeInfo !== '') {
+        calleeInfo = calleeInfo.split(',');
+
+        let filePath = calleeInfo[0];
+        let lineNumber = calleeInfo[1];
+        let filePathSpan = document.createElement('span');
+        let lineNumberSpan = document.createElement('span');
+        filePathSpan.classList.add('callerinfo-inner');
+        lineNumberSpan.classList.add('callerinfo-inner');
+        filePathSpan.innerText = filePath;
+        lineNumberSpan.innerText = lineNumber;
+        filePathSpan.onclick = copyCallerFile;
+        lineNumberSpan.onclick = copyCallerLineNumber;
+
+        let calleeInfoText = document.createElement('span');
+        calleeInfoText.appendChild(document.createTextNode('File: '));
+        calleeInfoText.appendChild(filePathSpan);
+        calleeInfoText.appendChild(document.createTextNode(', Line: '));
+        calleeInfoText.appendChild(lineNumberSpan);
+        calleeInfoText.classList.add('callerinfo');
+
+        text.appendChild(calleeInfoText);
+      }
 
       element.className = 'node';
       element.appendChild(text);
@@ -747,22 +759,42 @@ class CallTree:
         childWrapper.appendChild(traversedElement);
       } else {
         element.id = nodeName;
-        for (let callee in node) {
-          childWrapper.appendChild(drawMap(node[callee], callee));
+        if (showPosition) {
+          for (let callee in node) {
+            childWrapper.appendChild(drawMap(node[callee]['caller'], callee, node[callee]['callee']));
+          }
+        } else {
+          for (let callee in node) {
+            childWrapper.appendChild(drawMap(node[callee], callee));
+          }
         }
       }
+
       element.appendChild(childWrapper);
 
       return element;
     }
 
-    function copyText(e) {
+    function copyFunctionName(e) {
       e.stopPropagation();
+      copyToClipboard(e.target.previousSibling.textContent.slice(1,-1), 'function name');
+    }
 
-      let textToCopy = e.target.parentNode.innerText.slice(1,-1);
+    function copyCallerFile(e) {
+      e.stopPropagation();
+      copyToClipboard(e.target.innerText, 'caller file info');
+    }
 
+    function copyCallerLineNumber(e) {
+      e.stopPropagation();
+      copyToClipboard(e.target.innerText, 'caller line number info');
+    }
+
+    function copyToClipboard(textToCopy, message) {
       if (!navigator) {
         // Show fail toasts
+        let failMessageDiv = document.getElementById('copy-fail-message');
+        failMessageDiv.innerText = `Copy ${message} failed!`;
         let toast = new bootstrap.Toast(document.getElementById('copy-fail'));
         toast.show();
         return;
@@ -770,10 +802,14 @@ class CallTree:
 
       navigator.clipboard.writeText(textToCopy).then(() => {
         // Show success toasts
+        let successMessageDiv = document.getElementById('copy-success-message');
+        successMessageDiv.innerText = `Copy ${message} successed!`;
         let toast = new bootstrap.Toast(document.getElementById('copy-success'));
         toast.show();
       }).catch(err => {
         // Show fail toasts
+        let failMessageDiv = document.getElementById('copy-fail-message');
+        failMessageDiv.innerText = `Copy ${message} failed!`;
         let toast = new bootstrap.Toast(document.getElementById('copy-fail'));
         toast.show();
       })
@@ -783,7 +819,6 @@ class CallTree:
       let rootEle = document.getElementById('root');
       let paddingBalancer = document.createElement('div');
       paddingBalancer.style.paddingLeft = '1rem';
-      buildCallMap(callTree);
       for (let caller in callTree) {
         paddingBalancer.appendChild(drawMap(callTree[caller], caller));
       }
@@ -855,6 +890,18 @@ class CallTree:
       right: 1rem;
       top: 1rem;
     }
+    .callerinfo {
+      margin-left: 1rem;
+      color: rgba(0, 0, 0, 0.3);
+      cursor: initial;
+    }
+    .callerinfo-inner {
+      transition-duration: 0.15s;
+      cursor: pointer;
+    }
+    .callerinfo-inner:hover {
+      color: rgb(53, 117, 255);
+    }
   </style>
 </head>
 
@@ -879,8 +926,8 @@ class CallTree:
       <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 11">
         <div id='copy-success' class="toast align-items-center text-white bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
           <div class="d-flex">
-            <div class="toast-body">
-              Copy function name successed!
+            <div id='copy-success-message' class="toast-body">
+              success message
             </div>
             <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
           </div>
@@ -889,8 +936,8 @@ class CallTree:
       <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 11">
         <div id='copy-fail' class="toast align-items-center text-white bg-danger border-0" role="alert" aria-live="assertive" aria-atomic="true">
           <div class="d-flex">
-            <div class="toast-body">
-              Copy function name failed!
+            <div id='copy-fail-message' class="toast-body">
+              fail message
             </div>
             <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
           </div>
@@ -900,7 +947,7 @@ class CallTree:
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-ka7Sk0Gln4gmtz2MlQnikT1wXgYsOg+OMhuP+IlRH9sENBO0LRn5q+8nbTov4+1p" crossorigin="anonymous"></script>
   </body>
 </html>
-''' % self.toJsList()
+''' % ('true' if BOOL_SHOW_POSITION else 'false', self.toJsList())
 
     return htmlContent
 
@@ -911,3 +958,5 @@ treeStr = ct.toHtml()
 
 with open(args.output, 'w') as fp:
   fp.write(treeStr)
+
+ct.log('Done!')
