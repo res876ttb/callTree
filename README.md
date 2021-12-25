@@ -28,8 +28,8 @@ optional arguments:
   -o OUTPUT, --output OUTPUT
                         The output HTML file name.
   -d DEPTH, --depth DEPTH
-                        Max depth of result. Default is 900, which is also
-                        maximal value.
+                        Max depth of result. Default is 50, maximal value is
+                        900.
   -v, --verbose         Show more log for debugging.
   -n, --no_position     Whether NOT to show ref file and line number.
   -g, --background      Whether NOT to print output to stdout.

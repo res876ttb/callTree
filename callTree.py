@@ -13,7 +13,7 @@ parser.add_argument('symbols', type=str, help='The root symbols of caller tree. 
 parser.add_argument('-p', '--path', type=str, default='.', help='Path to the cscope.out file or GPATH/GRTAGS/GTAGS with sqlite3 format.')
 parser.add_argument('-b', '--blacklist', type=str, default='', help='List of black list. Use comma to seperate each symbol with space. Regex matching is supported. For example, `DEBUG,DEBUG_\w+`')
 parser.add_argument('-o', '--output', type=str, default='calltree.html', help='The output HTML file name.')
-parser.add_argument('-d', '--depth', type=int, default=900, help='Max depth of result. Default is 900, which is also maximal value.')
+parser.add_argument('-d', '--depth', type=int, default=50, help='Max depth of result. Default is 50, maximal value is 900.')
 parser.add_argument('-v', '--verbose', action='store_true', help='Show more log for debugging.')
 parser.add_argument('-n', '--no_position', action='store_false', help='Whether NOT to show ref file and line number.')
 parser.add_argument('-g', '--background', action='store_true', help='Whether NOT to print output to stdout.')
