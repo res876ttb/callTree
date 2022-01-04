@@ -537,9 +537,12 @@ class CallTree:
           result += '},'
 
     for symbol in self.trees:
-      result += '"%s":{' % symbol
-      flatten(self.trees[symbol])
-      result += '},'
+      if type(self.trees[symbol]) == str:
+        result += '"%s":"%s",' % (symbol, self.trees[symbol])
+      else:
+        result += '"%s":{' % symbol
+        flatten(self.trees[symbol])
+        result += '},'
 
     result += '}'
     return result
