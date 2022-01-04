@@ -727,10 +727,10 @@ class CallTree:
       element.className = 'node';
       element.appendChild(text);
 
-      if (node === '@Traversed' || node === '@NoReference') {
+      if (node === '@Traversed' || node === '@NoReference' || node === '@Blacklisted') {
         let traversedElement = document.createElement('div')
         traversedElement.classList.add('node');
-        if (node === '@NoReference') {
+        if (node === '@NoReference' || node === '@Blacklisted') {
           traversedElement.innerText = node;
           traversedElement.classList.add('cursor-not-allowed');
           element.id = nodeName;
