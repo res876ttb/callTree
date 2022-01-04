@@ -351,9 +351,14 @@ class CallTree:
     self.macroEndMap = _buildDefinitionMap(self.macroEnds)
 
   def matchBlackList(self, symbol):
+    if len(LIST_BLACKLIST) == 0:
+      return False
+    
+    decodedSymbol = self.decodeSymbol(symbol)
+
     for blackListItem in LIST_BLACKLIST:
-      if re.match(blackListItem, symbol):
-        self.log('Match blackList! Symbol:', symbol, 'Pattern:', blackListItem)
+      if re.match(blackListItem, decodedSymbol):
+        self.log('Match blackList! Symbol:', decodedSymbol, 'Pattern:', blackListItem)
         return True
 
     return False
